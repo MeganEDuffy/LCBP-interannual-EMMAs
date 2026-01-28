@@ -1,7 +1,7 @@
 ############################################
 # Python module to perform single evnt PCA #
 # Megan Duffy - Adair Lab, UVM #############
-# last updated 2026-01-19 ##################
+# last updated 2026-01-21 ##################
 ############################################
 
 # Event_pca_error.py
