@@ -1,6 +1,7 @@
 
 ###################################################################
 # R function to plot stream sensor data: q, N-NO3, DOC, turbidity #
+# All corrected data downloaded as csv files from Aquarius ########
 # Megan Duffy - Adair Lab, UVM ####################################
 # last updated 2026-05-07 #########################################
 ###################################################################
@@ -41,7 +42,7 @@ stream_sensor_summary <- function(site_name,
   dat_doc  <- read_aq(doc_file) %>% rename(doc_mgL = Value)
   dat_turb <- read_aq(turb_file) %>% rename(turb_ntu = Value)
   
-  # 3. Create Winter Shading Data (Dec 20 - Mar 20)
+  # 3. Create Astronomical Winter Shading Data (Dec 20 - Mar 20)
   # Extract years from the plot range to cover the whole timeline
   years <- year(plot_range[1]):year(plot_range[2])
   winter_shades <- data.frame(yr = years) %>%
@@ -69,9 +70,9 @@ stream_sensor_summary <- function(site_name,
   
   # 5. Build Panels
   p_q    <- base_plot(dat_q, "q_cms", "Q (cms)", q_lim, "blue") + 
-            labs(title = paste(site_name, "Brook: High-Frequency Sensor Summary"))
+            labs(title = paste(site_name, "Brook: in situ sensor timeseries"))
   
-  p_no3  <- base_plot(dat_no3, "no3_mgL", "NO3 (mg/L)", no3_lim, "darkgreen")
+  p_no3  <- base_plot(dat_no3, "no3_mgL", "N-NO3 (mg/L)", no3_lim, "darkgreen")
   
   p_doc  <- base_plot(dat_doc, "doc_mgL", "DOC (mg/L)", doc_lim, "brown")
   
