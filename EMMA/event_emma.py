@@ -155,7 +155,8 @@ def plot_event_pca(
 
 def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components=2):
     """
-    Perform PCA-based End-Member Mixing Analysis (EMMA) for a storm event.
+    Perform PCA-based EMMA for a storm event using grouped end-member types.
+    Groups multiple Sample IDs by 'Type' and uses their mean tracer values.
     
     Parameters:
         data (DataFrame): Full dataframe with streamwater and endmember data
@@ -169,7 +170,7 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
         fractions_df (DataFrame): Streamwater samples with source fractions
     """
     
-    # Site-specific tracer selection
+#1. Site-specific tracer selection
     if site == "Wade":
         tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L']
     elif site == "Hungerford":
@@ -180,7 +181,7 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     else:
         raise ValueError("Site not recognized. Use 'Wade', 'Hungerford', or 'Potash'.")
 
-    # Ensure datetime format
+# 2. Ensure datetime format
     #data["Date"] = pd.to_datetime(data["Date"], format="%m/%d/%Y", errors="coerce") #OLD
 
     # Ensure datetime column is datetime type
@@ -188,7 +189,7 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     data['Datetime'] = pd.to_datetime(data['Datetime'], format="%m/%d/%Y %H:%M", errors="coerce") 
     data = data[data['Datetime'].notna()] # NA dates (we have a couple in the RI23 dataset) not useful - prune 
 
-    # --- Subset streamwater and endmembers ---
+# 3. Subset streamwater and endmembers
     stream = data[
         (data["Site"] == site) &
         (data["Type"].isin(["Grab", "Grab/Isco", "Baseflow", "Isco"])) &
@@ -196,25 +197,27 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
         (data["Datetime"] <= pd.to_datetime(end_date))
     ].copy()
 
-    endmembers = data[
+    # Identify endmembers by the provided list of IDs
+    em_raw = data[
         (data["Site"] == site) &
         (data["Sample ID"].isin(endmember_ids))
     ].copy()
 
-    # Clean + prepare
+    # --- THE GROUPING LOGIC ---
+    # Instead of treating each ID as a source, group by 'Type'
+    # E.g., this creates a single "Groundwater" source from multiple IDs
+    em_grouped = em_raw.groupby('Type')[tracers].mean().reset_index()
+    em_grouped["Group"] = "Endmember"
+    
+    # 4. Clean + prepare for PCA
     stream_clean = stream[tracers].dropna().copy()
     stream_clean["Group"] = "Streamwater"
     stream_clean["Datetime"] = stream["Datetime"]
 
-    end_clean = endmembers[tracers].copy()
-    end_clean = end_clean.fillna(end_clean.mean())
-    end_clean["Group"] = "Endmember"
-    end_clean["Datetime"] = endmembers["Datetime"].values
-    end_clean["Type"] = endmembers["Type"].values
+    # Combine stream and the grouped endmembers
+    combined = pd.concat([stream_clean, em_grouped], ignore_index=True)
 
-    combined = pd.concat([stream_clean, end_clean], ignore_index=True)
-
-    # --- PCA on combined data ---
+    # 5. PCA logic
     scaler = StandardScaler()
     scaled = scaler.fit_transform(combined[tracers])
 
@@ -224,13 +227,13 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     combined["PC1"] = pca_result[:, 0]
     combined["PC2"] = pca_result[:, 1]
 
-    # --- Separate stream and endmembers in PC space ---
+    # 6. Separate in PC space
     pc_cols = [f"PC{i+1}" for i in range(n_components)]
     stream_pcs = combined[combined["Group"] == "Streamwater"][pc_cols].values
     endmember_pcs = combined[combined["Group"] == "Endmember"][pc_cols].values
     endmember_labels = combined[combined["Group"] == "Endmember"]["Type"].values
 
-    # --- EMMA optimization ---
+    # 7. EMMA optimization 
     def objective(Ii, xi, B):
         xi_pred = np.dot(Ii, B)
         return np.linalg.norm(xi - xi_pred)
@@ -249,23 +252,12 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
 
     fractions = np.vstack(fractions)
 
-    def project_simplex_nonneg(vec):
-        vec = np.where(vec < 0, 0, vec)          # set negatives to zero
-        s = vec.sum()
-        if s == 0:
-            return np.ones_like(vec) / len(vec)  # all zero? equal fractions
-        return vec / s
-
-    fractions = np.apply_along_axis(project_simplex_nonneg, 1, fractions)
-
-    # --- Assemble output DataFrame ---
-    fraction_cols = list(endmember_labels)
+    # 8. Assemble output
     stream_info = stream.reset_index(drop=True)[['Sample ID', 'Datetime', 'Site']]
-    fractions_df = pd.concat([stream_info, pd.DataFrame(fractions, columns=fraction_cols)], axis=1)
-    fractions_df["Sum_Fractions"] = fractions_df[fraction_cols].sum(axis=1)
+    fractions_df = pd.concat([stream_info, pd.DataFrame(fractions, columns=endmember_labels)], axis=1)
+    fractions_df["Sum_Fractions"] = fractions_df[list(endmember_labels)].sum(axis=1)
 
-    #return fractions_df, etc
-    return fractions_df, scaler, pca, end_clean
+    return fractions_df, scaler, pca, em_grouped
 
 ##########################
 # STEP 3. ERROR FUNCTION #
