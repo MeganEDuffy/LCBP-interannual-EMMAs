@@ -1,5 +1,0 @@
-"TOA5","79118","CR1000","79118","CR1000.Std.28.02","CPU:WW_WinterPit1_dec2023.CR1","60165","Table1"
-"TIMESTAMP","RECORD","O2_mV_Avg(1)","O2_mV_Avg(2)","O2_mV_Avg(3)","SBTemp_C_Avg(1)","SBTemp_C_Avg(2)","SBTemp_C_Avg(3)","O2_Final_Avg(1)","O2_Final_Avg(2)","O2_Final_Avg(3)","VWC(1)","VWC(2)","VWC(3)","EC(1)","EC(2)","EC(3)","Temp5TE(1)","Temp5TE(2)","Temp5TE(3)","BattVolt_Avg"
-"TS","RN","mV","mV","mV","C","C","C","%","%","%","m3/m3","m3/m3","m3/m3","dS/m","dS/m","dS/m","deg_C","deg_C","deg_C","Volts"
-"","","Avg","Avg","Avg","Avg","Avg","Avg","Avg","Avg","Avg","Smp","Smp","Smp","Smp","Smp","Smp","Smp","Smp","Smp","Avg"
-"2025-08-19 10:30:00",0,40.10091,43.83386,46.35643,16.29753,15.33077,15.54237,16.53551,18.52579,18.74677,0.383,0.126,0.069,0.01,0,0.02,13.6,14.7,14.7,12.49246
