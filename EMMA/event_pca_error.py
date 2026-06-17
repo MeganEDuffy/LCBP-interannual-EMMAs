@@ -178,7 +178,7 @@ def plot_event_pca_with_avgEM(
     # Sanitize filename: replace spaces and parentheses
     save_event_name = title.replace(" ", "_").replace("(", "").replace(")", "").replace(":", "")
     filename = f"{site}_{save_event_name}.jpg"
-    output_path = os.path.join("/home/millieginty/OneDrive/git-repos/LCBP-interannual-EMMAs/", filename)
+    output_path = os.path.join("/home/millieginty/OneDrive/git-repos/LCBP-interannual-EMMAs/Output/PCA-Mixing", filename)
 
     fig.savefig(output_path, dpi=300)
     print(f"Saved plot to: {output_path}")
