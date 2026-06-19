@@ -21,6 +21,7 @@ plot_stream_cmb <- function(site_name,
                             exo_file, 
                             q_lim,
                             sc_lim,
+                            sc_old_val, # or can leave commented out and use sC max/iniital
                             sc_new_val = 10 # Default parameter for rain/melt
 ) {
   
@@ -48,7 +49,7 @@ plot_stream_cmb <- function(site_name,
   
   # --- 3. CONDUCTIVITY MASS BALANCE MATH ---
   # Dynamically pull the stream's initial sC value within the window as sC_old
-  sc_old_val <- merged_dt$sC[1]
+  #sc_old_val <- merged_dt$sC[1]
   
   cmb_data <- merged_dt %>%
     mutate(
@@ -112,6 +113,7 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
                                          exo_file, 
                                          emma_frac_file,
                                          q_lim = c(0, 4),
+                                         sc_old_val, # or can leave commented out and use sC max/iniital
                                          sc_new_val = 12) {
   
   # --- 1. LOAD & PROCESS CONTINUOUS CMB DATA ---
@@ -135,7 +137,7 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
   
   # CMB Volumetric Math
   #sc_old_val <- cmb_data$sC[1] 
-  sc_old_val <- 32
+  
   cmb_data <- cmb_data %>%
     mutate(
       f_old = (sC - sc_new_val) / (sc_old_val - sc_new_val),
