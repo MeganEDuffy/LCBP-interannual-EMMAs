@@ -39,8 +39,8 @@ def plot_event_pca_with_avgEM(
 
     # Site-specific tracers
     if site == "Wade":
-        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L']
-        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original tracer selection
+        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Alternative Wade tracer selection
     elif site == "Hungerford":
         tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     elif site == "Potash":
@@ -111,27 +111,29 @@ def plot_event_pca_with_avgEM(
     # -----------------------
     # Plotting
     # -----------------------
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(6, 6))
 
     # --- set font sizes globally (scale ~1.5× default) ---
     mpl.rcParams.update({
         "font.size": 18,          # base font size
         "axes.titlesize": 18,     # title
         "axes.labelsize": 18,     # x and y labels
-        "xtick.labelsize": 14,    # tick labels
-        "ytick.labelsize": 14,
+        "xtick.labelsize": 16,    # tick labels
+        "ytick.labelsize": 16,
         "legend.fontsize": 18
     })
 
     # Streamwater points
     sw = combined[combined["Group"] == "Streamwater"]
-    ax.scatter(sw["PC1"], sw["PC2"], marker='+', c='blue', alpha=0.5, label='Streamwater')
+    ax.scatter(sw["PC1"], sw["PC2"], marker='+', s=100, c='blue', alpha=0.9, label='Streamwater')
 
     # Endmember markers/colors
     endmember_markers = {
-        'Rain': 'o', 'Snow': 's', 'Snowmelt lysimeter': '^', 'Precip': '*',
-        'Soil water lysimeter dry': '<', 'Soil water lysimeter wet': '>',
-        'Groundwater': 'D', 'Baseflow': 'P'
+        #'Rain': 'o', 'Snow': 's', 
+        'Soil water lysimeter': '<', #'Soil water lysimeter wet': '>', # I removed distinction between wet and dry transects 2026-07-27
+        'Snowmelt lysimeter': '^', 
+        #'Precip': '*',
+        'Groundwater': '>', 'Baseflow': 'P'
     }
     colors = ['#d7191c', '#fdae61', '#abdda4', '#2b83ba',
               '#2ca25f', '#636363', '#8856a7', '#d95f0e']
@@ -144,9 +146,9 @@ def plot_event_pca_with_avgEM(
                 em_stat["PC1_mean"], em_stat["PC2_mean"],
                 xerr=em_stat["PC1_std"], yerr=em_stat["PC2_std"],
                 fmt=endmember_markers[etype],  # marker style
-                color=color, ecolor=color,
+                color=color, ecolor="black",
                 elinewidth=1.5, capsize=4,
-                markersize=12, markeredgecolor='black',
+                markersize=15, markeredgecolor='black',
                 label=f"{etype} mean ±1 SD"
             )
 
