@@ -111,7 +111,7 @@ def plot_event_pca_with_avgEM(
     # -----------------------
     # Plotting
     # -----------------------
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(7.5, 6))
 
     # --- set font sizes globally (scale ~1.5× default) ---
     mpl.rcParams.update({
