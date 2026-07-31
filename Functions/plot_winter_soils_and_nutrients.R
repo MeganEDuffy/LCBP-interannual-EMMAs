@@ -11,7 +11,6 @@
 # LOAD PACKAGES #
 #################
 
-
 library(tidyverse)
 library(lubridate)
 library(cowplot)
@@ -22,7 +21,7 @@ plot_winter_soils_and_nutrients <- function(site_name,
                                             soil_file,
                                             resin_file,
                                             plot_range = c("2022-06-01", "2023-04-30"),
-                                            base_font_size = 12) {
+                                            base_font_size = 14) {
   
   # -------------------------------------------------------------------
   # 1. TIME BOUNDS & DATE PREP
@@ -42,11 +41,18 @@ plot_winter_soils_and_nutrients <- function(site_name,
     ) %>%
     filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
 
+  # Calculate daily average air temperatures for smoothing
+  dat_met_daily <- dat_met %>%
+    mutate(date = as.Date(datetime, tz = "UTC")) %>%
+    group_by(date) %>%
+    summarise(Air_Temp_daily = mean(Air_Temp, na.rm = TRUE), .groups = "drop") %>%
+    mutate(datetime = as.POSIXct(paste(date, "12:00:00"), tz = "UTC"))
+
   # -------------------------------------------------------------------
   # 3. LOAD & CLEAN SNOWPACK DATA
   # -------------------------------------------------------------------
   dat_snow <- read.csv(snow_file, comment.char = "#") %>%
-    rename_with(~ "snow_cm", matches("modeled_snow_depth_cm|snowpack_cm|Snowpack Depth", ignore.case = TRUE)) %>%
+    rename_with(~ "snow_cm", matches("modeled_snow_depth_cm|snowpack_cm|Snowpack Depth cm", ignore.case = TRUE)) %>%
     rename_with(~ "Date_col", matches("Date|DATE|datetime|Timestamp", ignore.case = TRUE)) %>%
     mutate(
       datetime = parse_date_time(Date_col, orders = c("ymd", "mdy", "ymd HMS", "mdy HM"), tz = "UTC"),
@@ -64,7 +70,6 @@ plot_winter_soils_and_nutrients <- function(site_name,
     ) %>%
     filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
 
-  # Extract soil temperature and VWC dynamically
   soil_temp_col <- names(dat_soil)[grep("Temp|temperature", names(dat_soil), ignore.case = TRUE)][1]
   soil_vwc_col  <- names(dat_soil)[grep("VWC|vwc", names(dat_soil), ignore.case = TRUE)][1]
 
@@ -84,25 +89,39 @@ plot_winter_soils_and_nutrients <- function(site_name,
     )
 
   # -------------------------------------------------------------------
-  # 6. BUILD CONTINUOUS SENSOR PANELS (A-D)
+  # 6. BUILD CONTINUOUS SENSOR PANELS (A-C)
   # -------------------------------------------------------------------
   
-  # Panel A: Dual Axis (Precip Inverted Bar/Line + Air Temp Line)
+  # Panel A: Dual Axis (Precip Inverted Bar + Daily Air Temp Normal Line)
   max_p <- max(dat_met$Precip, na.rm = TRUE)
   if (max_p == 0 || !is.finite(max_p)) max_p <- 10
   
-  p_met <- ggplot(dat_met) +
-    geom_col(aes(x = datetime, y = Precip), fill = "#2F4F4F", alpha = 0.7, width = 86400) +
-    geom_line(aes(x = datetime, y = Air_Temp * (max_p / 30)), color = "firebrick", linewidth = 0.8) +
+  # Define the anticipated min and max range for your air temperature to set the secondary axis bounds
+  temp_min <- -30
+  temp_max <- 30
+  temp_range <- temp_max - temp_min
+  
+  p_met <- ggplot() +
+    geom_col(data = dat_met, aes(x = datetime, y = Precip), fill = "#2F4F4F", alpha = 0.7, width = 86400) +
+    # Map Air Temp onto the reversed primary axis (warm temps approach 0, cold temps approach max_p)
+    geom_line(data = dat_met_daily, 
+              aes(x = datetime, y = max_p - (Air_Temp_daily - temp_min) * (max_p / temp_range)), 
+              color = "firebrick", linewidth = 0.8) +
     scale_y_reverse(
       name = "Precip (mm)",
       limits = c(max_p, 0),
-      sec.axis = sec_axis(~ . * (30 / max_p), name = "Air Temp (°C)")
+      # Map the reversed axis back to normal temperature readings for the labels
+      sec.axis = sec_axis(~ temp_min + (max_p - .) * (temp_range / max_p), name = "Air Temp (°C)")
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-    labs(title = "Precipitation & Air Temperature") +
+    labs(title = "Precipitation & Daily Air Temperature") +
     theme_minimal(base_size = base_font_size) +
-    theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+    theme(
+      axis.title.x = element_blank(), 
+      axis.text.x = element_blank(),
+      axis.title.y.right = element_text(color = "firebrick"),
+      axis.title.y.left = element_text(color = "#2F4F4F")
+    )
 
   # Panel B: Snowpack Depth
   p_snow <- ggplot(dat_snow, aes(x = datetime, y = snow_cm)) +
@@ -112,23 +131,32 @@ plot_winter_soils_and_nutrients <- function(site_name,
     theme_minimal(base_size = base_font_size) +
     theme(axis.title.x = element_blank(), axis.text.x = element_blank())
 
-  # Panel C: Soil Temperature
-  p_soil_temp <- ggplot(dat_soil, aes(x = datetime, y = .data[[soil_temp_col]])) +
-    geom_smooth(color = "darkorange", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
-    scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-    labs(title = "Soil Temperature (°C)", y = "Temp (°C)") +
-    theme_minimal(base_size = base_font_size) +
-    theme(axis.title.x = element_blank(), axis.text.x = element_blank())
-
-  # Panel D: Soil VWC
-  p_vwc <- ggplot(dat_soil, aes(x = datetime, y = .data[[soil_vwc_col]])) +
-    geom_smooth(color = "dodgerblue3", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
+  # Panel C: Combined Soil Moisture (VWC) and Soil Temperature
+  max_vwc <- max(dat_soil[[soil_vwc_col]], na.rm = TRUE)
+  max_temp <- max(abs(dat_soil[[soil_temp_col]]), na.rm = TRUE)
+  if (max_vwc == 0 || !is.finite(max_vwc)) max_vwc <- 0.5
+  if (max_temp == 0 || !is.finite(max_temp)) max_temp <- 20
+  
+  soil_scale <- max_temp / max_vwc 
+  
+  p_soil <- ggplot(dat_soil, aes(x = datetime)) +
+    geom_smooth(aes(y = .data[[soil_vwc_col]]), color = "dodgerblue3", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
+    # Changed color to a deeper shade: "darkorange3"
+    geom_smooth(aes(y = .data[[soil_temp_col]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
+    scale_y_continuous(
+      name = "VWC (m³/m³)",
+      sec.axis = sec_axis(~ . * soil_scale, name = "Soil Temp (°C)")
+    ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %Y") +
-    labs(title = "Volumetric Water Content (VWC)", y = "VWC (m³/m³)", x = "Date") +
-    theme_minimal(base_size = base_font_size)
+    labs(title = "Soil Moisture & Temperature", x = "Date") +
+    theme_minimal(base_size = base_font_size) +
+    theme(
+      axis.title.y.left = element_text(color = "dodgerblue3"),
+      axis.title.y.right = element_text(color = "darkorange3") # Matched right axis label color to line
+    )
 
   # -------------------------------------------------------------------
-  # 7. BUILD RESIN NUTRIENT BOXPLOT PANELS (E-G)
+  # 7. BUILD RESIN NUTRIENT BOXPLOT PANELS (D-F)
   # -------------------------------------------------------------------
   make_nutrient_boxplot <- function(species_name, y_max) {
     dat_sub <- dat_resin %>% filter(Species == species_name)
@@ -154,11 +182,11 @@ plot_winter_soils_and_nutrients <- function(site_name,
   # 8. STACK & ALIGN ALL PANELS WITH COWPLOT
   # -------------------------------------------------------------------
   top_stack <- plot_grid(
-    p_met, p_snow, p_soil_temp, p_vwc,
+    p_met, p_snow, p_soil,
     ncol = 1,
     align = "v",
-    rel_heights = c(1, 1, 1, 1.2),
-    labels = c("A", "B", "C", "D"),
+    rel_heights = c(1, 1, 1.2),
+    labels = c("A", "B", "C"),
     label_x = -0.02
   )
 
@@ -166,7 +194,7 @@ plot_winter_soils_and_nutrients <- function(site_name,
     p_nh4, p_no3, p_po4,
     ncol = 1,
     align = "v",
-    labels = c("E", "F", "G"),
+    labels = c("D", "E", "F"),
     label_x = -0.02
   )
 

@@ -1,4 +1,4 @@
-,Date,Precip mm,24-hr Snowfall cm,24-hr Snowfall SWE mm,24-hr Snowfall SLR,Snowpack Depth cm,Snowpack SWE mm,Snowpack Density,datetime,Stream,Station,snowpack_cm,water_year
+,#Date,Precip mm,24-hr Snowfall cm,24-hr Snowfall SWE mm,24-hr Snowfall SLR,Snowpack Depth cm,Snowpack SWE mm,Snowpack Density,datetime,Stream,Station,#snowpack_cm,water_year
 1,11/15/2022  ,0,0,NA,NA,0,NA,NA,2022-11-15,Wade,CoCoRaHS VT-FR-30,0,2023
 2,11/16/2022  ,1.8,2.5,1.8,14.3 : 1,2.5,1.8,7%,2022-11-16,Wade,CoCoRaHS VT-FR-30,2.5,2023
 3,11/17/2022  ,8.9,6.4,8.9,7.1 : 1,15.2,NA,NA,2022-11-17,Wade,CoCoRaHS VT-FR-30,15.2,2023
