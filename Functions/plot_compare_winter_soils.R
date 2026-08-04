@@ -215,3 +215,146 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   
   return(padded_final)
 }
+
+#################
+# LOAD PACKAGES #
+#################
+
+library(tidyverse)
+library(lubridate)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+
+plot_event_emma_with_soils <- function(site_name, 
+                                       plot_range, 
+                                       q_file, 
+                                       snow_file,
+                                       soil_file,
+                                       emma_frac_file,
+                                       q_lim = c(0, 4),
+                                       base_font_size = 14,
+                                       event_title = NULL) {
+  
+  start_date <- as.POSIXct(plot_range[1], tz = "UTC")
+  end_date   <- as.POSIXct(plot_range[2], tz = "UTC")
+  
+  # -------------------------------------------------------------------
+  # 1. LOAD & PREP SNOW DATA
+  # -------------------------------------------------------------------
+  dat_snow <- read.csv(snow_file, comment.char = "#") %>%
+    rename_with(~ "snow_cm", matches("modeled_snow_depth_cm|snowpack_cm|Snowpack Depth cm", ignore.case = TRUE)) %>%
+    rename_with(~ "Date_col", matches("Date|DATE|datetime|Timestamp", ignore.case = TRUE)) %>%
+    mutate(
+      datetime = parse_date_time(Date_col, orders = c("ymd", "mdy", "ymd HMS", "mdy HM"), tz = "UTC"),
+      snow_cm = as.numeric(gsub("--", NA, as.character(snow_cm)))
+    ) %>%
+    filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
+
+  # -------------------------------------------------------------------
+  # 2. LOAD & PREP SOIL DATA
+  # -------------------------------------------------------------------
+  dat_soil <- read.csv(soil_file, comment.char = "#") %>%
+    rename_with(~ "Timestamp", matches("Timestamp|dateTimeText|datetime", ignore.case = TRUE)) %>%
+    mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS"), tz = "UTC")) %>%
+    filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
+
+  s_temp_col <- names(dat_soil)[grep("Temp|temperature", names(dat_soil), ignore.case = TRUE)][1]
+  s_vwc_col  <- names(dat_soil)[grep("VWC|vwc", names(dat_soil), ignore.case = TRUE)][1]
+
+  max_vwc <- max(dat_soil[[s_vwc_col]], na.rm = TRUE)
+  max_temp <- max(abs(dat_soil[[s_temp_col]]), na.rm = TRUE)
+  if (!is.finite(max_vwc) || max_vwc == 0) max_vwc <- 0.5
+  if (!is.finite(max_temp) || max_temp == 0) max_temp <- 20
+  soil_scale <- max_temp / max_vwc 
+
+  # -------------------------------------------------------------------
+  # 3. LOAD & PREP DISCHARGE & EMMA FRACTIONS
+  # -------------------------------------------------------------------
+  dat_q <- read.csv(q_file, comment.char = "#")
+  q_time_col <- names(dat_q)[grep("datetime|timestamp|ISO|Date", names(dat_q), ignore.case = TRUE)][1]
+  q_val_col  <- names(dat_q)[grep("q_cms|Value", names(dat_q), ignore.case = TRUE)][1]
+  
+  dat_q <- dat_q %>% 
+    rename(timestamp = all_of(q_time_col)) %>%
+    rename(q_cms = all_of(q_val_col)) %>% 
+    mutate(timestamp = ymd_hms(timestamp, tz = "UTC")) %>%
+    filter(timestamp >= start_date & timestamp <= end_date) %>%
+    arrange(timestamp)
+
+  emma_raw <- read.csv(emma_frac_file) %>%
+    mutate(timestamp = ymd_hms(Datetime, tz = "UTC")) %>%
+    filter(timestamp >= start_date & timestamp <= end_date)
+  
+  emma_dt <- as.data.table(dat_q)[as.data.table(emma_raw), roll = "nearest", on = .(timestamp)]
+  
+  gw_col   <- names(emma_dt)[grep("Groundwater", names(emma_dt), ignore.case = TRUE)][1]
+  melt_col <- names(emma_dt)[grep("Snowmelt", names(emma_dt), ignore.case = TRUE)][1]
+  soil_col <- names(emma_dt)[grep("Soil", names(emma_dt), ignore.case = TRUE)][1]
+  
+  emma_data <- emma_dt %>%
+    mutate(
+      q_gw   = q_cms * .data[[gw_col]],
+      q_melt = q_cms * .data[[melt_col]],
+      q_soil = q_cms * .data[[soil_col]]
+    )
+
+  # -------------------------------------------------------------------
+  # 4. BUILD PANELS
+  # -------------------------------------------------------------------
+  
+  # Panel 1: Snowpack Depth
+  p_snow <- ggplot(dat_snow, aes(x = datetime, y = snow_cm)) +
+    geom_line(color = "blue4", linewidth = 1) +
+    scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
+    theme_bw(base_size = base_font_size) +
+    labs(title = event_title, y = "Snow (cm)") +
+    theme(axis.title.x = element_blank(), axis.text.x = element_blank(), plot.title = element_text(face = "bold"))
+
+  # Panel 2: Soil Temperature and Moisture
+  p_soil <- ggplot(dat_soil, aes(x = datetime)) +
+    geom_smooth(aes(y = .data[[s_vwc_col]]), color = "dodgerblue3", se = FALSE, linewidth = 0.9, method = "loess", span = 0.15) +
+    geom_smooth(aes(y = .data[[s_temp_col]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 0.9, method = "loess", span = 0.15) +
+    scale_y_continuous(
+      name = "VWC", limits = c(0, max_vwc),
+      sec.axis = sec_axis(~ . * soil_scale, name = "Temp (°C)")
+    ) +
+    scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
+    theme_bw(base_size = base_font_size) +
+    theme(
+      axis.title.x = element_blank(), 
+      axis.text.x = element_blank(),
+      axis.title.y.left = element_text(color = "dodgerblue3"),
+      axis.title.y.right = element_text(color = "darkorange3")
+    )
+
+  # Panel 3: EMMA Volumetric Hydrograph (with Meltwater label updated)
+  p_emma <- ggplot() +
+    geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 0.5) +
+    
+    geom_point(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), shape = 17, size = 2) +
+    geom_line(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), alpha = 0.4, linewidth = 0.6) +
+    
+    geom_point(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), shape = 16, size = 2) +
+    geom_line(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), alpha = 0.4, linewidth = 0.6) +
+    
+    geom_point(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), shape = 15, size = 2) +
+    geom_line(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), alpha = 0.4, linewidth = 0.6) +
+    
+    scale_y_continuous(name = "Q (cms)", limits = q_lim, expand = c(0, 0)) +
+    scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %d") +
+    scale_color_manual(values = c("Groundwater" = "blue", "Meltwater" = "gold3", "Soil water" = "firebrick")) +
+    scale_linetype_manual(values = c("Total Q" = "dashed")) +
+    theme_bw(base_size = base_font_size) + 
+    labs(x = "Date", color = "Components", linetype = "") +
+    theme(legend.position = "bottom")
+
+  # -------------------------------------------------------------------
+  # 5. STACK VERTICALLY WITH PATCHWORK
+  # -------------------------------------------------------------------
+  stacked_column <- (p_snow / p_soil / p_emma) + 
+    plot_layout(heights = c(0.9, 1, 1.2), guides = "collect") &
+    theme(legend.position = "bottom")
+
+  return(stacked_column)
+}
