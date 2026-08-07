@@ -89,7 +89,7 @@ def propagate_genereux_uncertainty(
             if pd.isna(sample_sd) or n_samples <= 1:
                 # Fallback for n = 1 (e.g., 10% coefficient of variation of the mean)
                 mean_val = em_grouped.loc[em_grouped["Type"] == source, col].values[0]
-                fallback_s = abs(mean_val) * 0.10
+                fallback_s = abs(mean_val) * 0.32  # Coefficient of variation derived from RI25 end-member samples
                 
                 # For n=1, degrees of freedom = 1 (or small-sample proxy). 
                 # Using df=1 with two-tailed alpha=0.30 gives t ≈ 1.963
