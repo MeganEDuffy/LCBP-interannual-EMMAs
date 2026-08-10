@@ -1,6 +1,5 @@
 #########################################
 # Python module to perform PCA and EMMA #
-# Megan Duffy - Adair Lab, UVM ##########
 # last updated 2026-01-19 ###############
 #########################################
 
@@ -12,11 +11,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import sklearn
+from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from scipy.optimize import minimize
+from scipy.stats import linregress
 
 # Define event-specfic PCA plot function
 
@@ -300,25 +301,28 @@ def predict_tracers_from_fractions(fractions_df, endmembers_df, tracer_cols):
 # STEP 4. PLOT PREDICTED VS OBSERVED TRACERS #
 ##############################################
 
-def plot_observed_vs_predicted(title, predicted_df, stream_df, tracer_cols):
+
+def plot_observed_vs_predicted(title, predicted_df, stream_df, tracer_cols, output_dir=None):
     """
-    Plot observed vs predicted tracer concentrations, with R² and RMSE annotations.
+    Plot observed vs predicted tracer concentrations, with R², RMSE, and p-value annotations.
 
     Parameters:
+        title (str): Title of the plot / filename base
         predicted_df (DataFrame): Output from predict_tracers_from_fractions
         stream_df (DataFrame): Original streamwater data
         tracer_cols (list): List of tracer names
+        output_dir (str or Path, optional): Directory to save the output plot
     """
     import matplotlib.pyplot as plt
 
-    # 🔹 Increase global font size for all plot elements
-    plt.rcParams.update({"font.size": 16})  
+    # Increase global font size for all plot elements
+    plt.rcParams.update({"font.size": 28})  
 
     # Merge observed and predicted data
     merged = pd.merge(predicted_df, stream_df, on=["Sample ID", "Datetime"])
 
     n = len(tracer_cols)
-    fig, axes = plt.subplots(1, n, figsize=(5 * n, 5))
+    fig, axes = plt.subplots(1, n, figsize=(7 * n, 7))
 
     if n == 1:
         axes = [axes]
@@ -330,7 +334,7 @@ def plot_observed_vs_predicted(title, predicted_df, stream_df, tracer_cols):
         tmp = merged[[tracer, f"{tracer}_predicted"]].dropna()
 
         # Scatter observed vs predicted
-        ax.scatter(tmp[tracer], tmp[f"{tracer}_predicted"], alpha=0.7)
+        ax.scatter(tmp[tracer], tmp[f"{tracer}_predicted"], s = 120, alpha=1)
 
         # 1:1 line
         lims = [tmp.min().min(), tmp.max().max()]
@@ -340,46 +344,55 @@ def plot_observed_vs_predicted(title, predicted_df, stream_df, tracer_cols):
 
         # Regression + metrics
         if len(tmp) > 1:  # need at least 2 points
-            X = tmp[[tracer]].values.reshape(-1, 1)
-            y = tmp[f"{tracer}_predicted"].values
+            x_vals = tmp[tracer].values
+            y_vals = tmp[f"{tracer}_predicted"].values
 
-            # R²
-            model = LinearRegression().fit(X, y)
-            r2 = model.score(X, y)
+            # Linear regression using scipy to easily get r-squared and p-value
+            slope, intercept, r_value, p_value, std_err = linregress(x_vals, y_vals)
+            r2 = r_value ** 2
 
             # RMSE
-            mse = mean_squared_error(tmp[tracer], tmp[f"{tracer}_predicted"])
+            mse = mean_squared_error(x_vals, y_vals)
             rmse = np.sqrt(mse)
 
-            # Add text box with R² and RMSE
+            # Format p-value string nicely
+            p_text = f"p < 0.001" if p_value < 0.001 else f"p = {p_value:.3f}"
+
+            # Add text box with R², RMSE, and p-value
             ax.text(
                 0.05, 0.95,
-                f"R² = {r2:.2f}\nRMSE = {rmse:.2f}",
+                f"R² = {r2:.2f}\nRMSE = {rmse:.2f}\n{p_text}",
                 transform=ax.transAxes,
                 ha="left", va="top",
-                fontsize=14,  # slightly larger than base
+                fontsize=28,  # adjusted slightly for extra line
                 bbox=dict(facecolor="white", alpha=0.7, edgecolor="none")
             )
 
-        ax.set_title(tracer, fontsize=18)
-        ax.set_xlabel("Observed", fontsize=16)
-        ax.set_ylabel("Predicted", fontsize=16)
+        ax.set_title(tracer, fontsize=28)
+        ax.set_xlabel("Observed", fontsize=28)
+        ax.set_ylabel("Predicted", fontsize=28)
 
-    plt.suptitle(title, fontsize=20, y=1.05)
+    plt.suptitle(title, fontsize=40)
     plt.tight_layout()
 
+    # Determine save directory
+    if output_dir is not None:
+        save_path = Path(output_dir)
+    else:
+        save_path = Path("output/EMMA-error-plots")
+
     # Ensure output directory exists
-    os.makedirs("output/EMMA-error-plots", exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
 
     # Create safe filename from title
     safe_title = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in title)
-    filename = os.path.join("output/EMMA-error-plots", f"{safe_title}.png")
+    filename = save_path / f"{safe_title}.png"
 
     # Save the figure
     plt.savefig(filename, dpi=300, bbox_inches="tight")
     plt.show()
 
-    print(f"✅ Figure saved to {filename}")
+    #print(f"✅ Figure saved to {filename}")
 
 def plot_emma_fractions_with_hydrograph(
     fractions_df,

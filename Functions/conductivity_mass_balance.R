@@ -21,8 +21,8 @@ plot_stream_cmb <- function(site_name,
                             exo_file, 
                             q_lim,
                             sc_lim,
-                            sc_old_val, # or can leave commented out and use sC max/iniital
-                            sc_new_val = 10 # Default parameter for rain/melt
+                            sc_old_val, 
+                            sc_new_val = NULL # Defaults to NULL to dynamically find the minimum sC in the window
 ) {
   
   # --- 1. READ DATA ---
@@ -43,18 +43,18 @@ plot_stream_cmb <- function(site_name,
   merged_dt <- as.data.table(dat_q)[as.data.table(dat_exo), roll = "nearest", on = .(timestamp)]
   
   # Filter data to the user-specified plotting window
-  merged_dt <- merged_dt %>%
+  cmb_data <- merged_dt %>%
     filter(timestamp >= plot_range[1] & timestamp <= plot_range[2]) %>%
     arrange(timestamp)
   
   # --- 3. CONDUCTIVITY MASS BALANCE MATH ---
-  # Dynamically pull the stream's initial sC value within the window as sC_old
-  #sc_old_val <- merged_dt$sC[1]
+  # Determine sC_new: if NULL, use the minimum sC value within the event window (Pinder & Jones style)
+  resolved_sc_new <- if (is.null(sc_new_val)) min(cmb_data$sC, na.rm = TRUE) else sc_new_val
   
-  cmb_data <- merged_dt %>%
+  cmb_data <- cmb_data %>%
     mutate(
       sC_old = sc_old_val,
-      sC_new = sc_new_val,
+      sC_new = resolved_sc_new,
       # Standard two-component mixing equation
       f_old = (sC - sC_new) / (sC_old - sC_new),
       f_new = 1 - f_old,
@@ -85,7 +85,8 @@ plot_stream_cmb <- function(site_name,
                        sec.axis = sec_axis(~.*coeff_sc, name="sC (uS/cm)")) +
     scale_x_datetime(limits = plot_range, date_labels = "") +
     scale_color_manual(values = c("Total Discharge"="black", "Sp. Conductivity"="red")) +
-    theme_bw() + theme(legend.position="top", axis.title.x = element_blank(), legend.title = element_blank())
+    theme_bw(base_size = 18) + 
+    theme(legend.position="top", axis.title.x = element_blank(), legend.title = element_blank())
   
   # Panel 2: Separated Hydrograph (Old vs New Flow Rates)
   p2 <- ggplot() +
@@ -96,7 +97,8 @@ plot_stream_cmb <- function(site_name,
     scale_y_continuous(name="Component Q (cms)", limits=q_lim, expand=c(0,0)) +
     scale_x_datetime(limits = plot_range, date_labels = "%b %d") +
     scale_color_manual(values = c("Total Q"="grey50", "Old water"="blue", "New water"="cyan3")) +
-    theme_bw() + theme(legend.position="bottom", legend.title = element_blank()) +
+    theme_bw(base_size = 18) + 
+    theme(legend.position="bottom", legend.title = element_blank()) +
     labs(x = "Date")
   
   # Combine Panels Stacked Vertically
@@ -108,13 +110,15 @@ plot_stream_cmb <- function(site_name,
 
 
 plot_emma_vs_cmb_hydrographs <- function(site_name, 
-                                         plot_range, 
-                                         q_file, 
-                                         exo_file, 
-                                         emma_frac_file,
-                                         q_lim = c(0, 4),
-                                         sc_old_val, # or can leave commented out and use sC max/iniital
-                                         sc_new_val = 12) {
+                                       plot_range, 
+                                       event_name,
+                                       q_file, 
+                                       exo_file, 
+                                       emma_frac_file,
+                                       output_dir,
+                                       q_lim = c(0, 4),
+                                       sc_old_val, 
+                                       sc_new_val = NULL) { # Defaults to NULL for auto-calculation
   
   # --- 1. LOAD & PROCESS CONTINUOUS CMB DATA ---
   dat_q   <- read.csv(q_file)
@@ -135,12 +139,14 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
     filter(timestamp >= plot_range[1] & timestamp <= plot_range[2]) %>%
     arrange(timestamp)
   
-  # CMB Volumetric Math
-  #sc_old_val <- cmb_data$sC[1] 
+  # Determine sC_new: if NULL, use the minimum sC within the event window
+  resolved_sc_new <- if (is.null(sc_new_val)) min(cmb_data$sC, na.rm = TRUE) else sc_new_val
   
+  # CMB Volumetric Math
   cmb_data <- cmb_data %>%
     mutate(
-      f_old = (sC - sc_new_val) / (sc_old_val - sc_new_val),
+      sC_new = resolved_sc_new,
+      f_old = (sC - sC_new) / (sc_old_val - sC_new),
       f_old = pmax(0, pmin(1, f_old)),
       f_new = 1 - f_old,
       q_old = q_cms * f_old,
@@ -148,15 +154,12 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
     )
   
   # --- 2. LOAD & PROCESS EMMA DATA ---
-  # Perform a nearest-join with Q to get instantaneous discharge for each EMMA sample
   emma_raw <- read.csv(emma_frac_file) %>%
     mutate(timestamp = ymd_hms(Datetime, tz = "UTC")) %>%
     filter(timestamp >= plot_range[1] & timestamp <= plot_range[2])
   
-  # Match discrete sample times to continuous Q rates
   emma_dt <- as.data.table(dat_q)[as.data.table(emma_raw), roll = "nearest", on = .(timestamp)]
   
-  # EMMA Volumetric Math
   emma_data <- emma_dt %>%
     mutate(
       q_gw   = q_cms * Groundwater,
@@ -166,9 +169,7 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
   
   # --- 3. PANEL 1: EMMA VOLUMETRIC HYDROGRAPH (TOP) ---
   p1 <- ggplot() +
-    # Total Hydrograph Background
     geom_line(data = cmb_data, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 0.5) +
-    # Discrete EMMA Component Points
     geom_point(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), shape = 17, size = 3) +
     geom_line(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), alpha = 0.4, linewidth = 0.7) +
     
@@ -182,25 +183,31 @@ plot_emma_vs_cmb_hydrographs <- function(site_name,
     scale_x_datetime(limits = plot_range, date_labels = "") +
     scale_color_manual(values = c("Groundwater" = "blue", "Snowmelt lysimeter" = "gold", "Soil water" = "firebrick")) +
     scale_linetype_manual(values = c("Total Q" = "dashed")) +
-    theme_bw() + 
-    labs(title = paste(site_name, "Brook: EMMA vs. CMB"), color = "EMMA components", linetype = "") +
+    theme_bw(base_size = 18) +  
+    labs(title = paste(site_name, "Brook: EMMA vs. CMB", event_name), color = "EMMA components", linetype = "") +
     theme(axis.title.x = element_blank(), legend.position = "right")
   
   # --- 4. PANEL 2: CMB VOLUMETRIC HYDROGRAPH (BOTTOM) ---
   p2 <- ggplot() +
-    geom_line(data = cmb_data, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 0.5) +
-    geom_line(data = cmb_data, aes(x = timestamp, y = q_old, color = "Old water"), linewidth = 0.9) +
-    geom_line(data = cmb_data, aes(x = timestamp, y = q_new, color = "New water"), linewidth = 0.9) +
+    geom_line(data = cmb_data, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 0.7) +
+    geom_line(data = cmb_data, aes(x = timestamp, y = q_old, color = "Old water"), linewidth = 1) +
+    geom_line(data = cmb_data, aes(x = timestamp, y = q_new, color = "New water"), linewidth = 1) +
     
     scale_y_continuous(name = "CMB Q (cms)", limits = q_lim, expand = c(0, 0)) +
     scale_x_datetime(name = "Date", limits = plot_range, date_labels = "%b %d\n%H:%M") +
     scale_color_manual(values = c("Old water" = "blue", "New water"="cyan3")) +
     scale_linetype_manual(values = c("Total Q" = "dashed")) +
-    theme_bw() + 
+    theme_bw(base_size = 18) +  
     labs(color = "CMB components", linetype = "") +
     theme(legend.position = "right")
   
   # Combine Stacked Panels
   stacked_plot <- p1 / p2 + plot_layout(heights = c(1, 1))
+  
+  # --- 5. SAVE PLOT ---
+  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  filename <- file.path(output_dir, paste0(site_name, "_", event_name, "_EMMA_CMB.jpg"))
+  ggsave(filename, plot = stacked_plot, width = 14, height = 8, dpi = 300)
+  
   return(stacked_plot)
 }
