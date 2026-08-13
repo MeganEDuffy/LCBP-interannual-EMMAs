@@ -69,6 +69,9 @@ plot_cumulative_winter_discharge <- function(site_number,
   p_text <- if (p_val < 0.001) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_val))
   
   # --- 5. GENERATE PLOT ---
+
+  r2_label <- bquote(R^{"2"})
+
   p <- ggplot(d182.win, aes(x = Year, y = CumWYQ, color = Year)) + 
     geom_point(size = 2, alpha = 0.9) + 
     theme_bw() +
@@ -85,7 +88,7 @@ plot_cumulative_winter_discharge <- function(site_number,
                gp = gpar(col = "black", fontsize = 14, fontface = "bold"))
     ) +
     annotation_custom(
-      textGrob(sprintf("R2 = %.2f", r2_val), 
+      textGrob(sprintf(r2_label, "R2 = %.2f", r2_val), 
                x = unit(0.02, "npc"), y = unit(0.88, "npc"),
                just = c("left", "top"),
                gp = gpar(col = "black", fontsize = 14))
