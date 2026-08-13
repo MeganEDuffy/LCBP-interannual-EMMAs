@@ -11,9 +11,9 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
                                         plot_range = c("2022-10-01", "2023-05-01"),
                                         q_lim = c(0, 15), 
                                         s1_no3_lim = c(0, 12), s2_no3_lim = c(0, 12), 
-                                        doc_lim = c(0, 35), 
-                                        s1_tp_lim = c(0, 1), s2_tp_lim = c(0, 1), 
-                                        turb_lim = c(0, 1000),
+                                        s1_doc_lim = c(0, 35), s2_doc_lim = c(0, 15),
+                                        s1_tp_lim = c(0, 1), s2_tp_lim = c(0, 0.3), 
+                                        s1_turb_lim = c(0, 1000), s2_turb_lim = c(0, 200),
                                         base_font_size = 14) {
   
   # -------------------------------------------------------------------
@@ -30,7 +30,7 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   )
   
   # -------------------------------------------------------------------
-  # 2. DATA LOADER HELPER (Updated to use ymd_hms)
+  # 2. DATA LOADER HELPER
   # -------------------------------------------------------------------
   load_sensor <- function(file_path, val_pattern) {
     if (is.null(file_path) || !file.exists(file_path)) return(NULL)
@@ -57,14 +57,12 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   # -------------------------------------------------------------------
   # 3. LOAD SITE DATA
   # -------------------------------------------------------------------
-  # Site 1 Data
   s1_q    <- load_sensor(s1_q_file, "q_cms_hb|Discharge|Value")
   s1_no3  <- load_sensor(s1_no3_file, "NO3|Nitrate|Value")
   s1_doc  <- load_sensor(s1_doc_file, "doc|Value")
   s1_tp   <- load_sensor(s1_tp_file, "TP|phosphorus|Value")
   s1_turb <- load_sensor(s1_turb_file, "turb|Value")
   
-  # Site 2 Data
   s2_q    <- load_sensor(s2_q_file, "q_cms_wb|Discharge|Value")
   s2_no3  <- load_sensor(s2_no3_file, "NO3|Nitrate|Value")
   s2_doc  <- load_sensor(s2_doc_file, "doc|Value")
@@ -72,7 +70,7 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   s2_turb <- load_sensor(s2_turb_file, "turb|Value")
   
   # -------------------------------------------------------------------
-  # 4. PANEL BUILDER HELPER
+  # 4. PANEL BUILDER HELPER (Supports Expressions for y_label)
   # -------------------------------------------------------------------
   build_panel <- function(df, y_label, y_lims, l_color, samp_dates, is_bottom = FALSE, title = NULL) {
     
@@ -102,35 +100,37 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   }
   
   # -------------------------------------------------------------------
-  # 5. BUILD INDIVIDUAL PANELS (Using Site-Specific Limits where needed)
+  # 5. BUILD INDIVIDUAL PANELS (Using bquote for Nitrate superscript)
   # -------------------------------------------------------------------
+  no3_label <- bquote(NO[3]^{"-"}~"(mg/L)")
+  
   # Site 1 Panels
   p_q1    <- build_panel(s1_q, "Q (m³/s)", q_lim, "blue", site1_samp_dates, title = paste(site1_name, "Brook"))
-  p_no31  <- build_panel(s1_no3, "NO3 (mg/L)", s1_no3_lim, "darkgreen", site1_samp_dates)
-  p_doc1  <- build_panel(s1_doc, "DOC (mg/L)", doc_lim, "saddlebrown", site1_samp_dates)
+  p_no31  <- build_panel(s1_no3, no3_label, s1_no3_lim, "darkgreen", site1_samp_dates)
+  p_doc1  <- build_panel(s1_doc, "DOC (mg/L)", s1_doc_lim, "saddlebrown", site1_samp_dates)
   p_tp1   <- build_panel(s1_tp, "TP (mg/L)", s1_tp_lim, "purple", site1_samp_dates)
-  p_turb1 <- build_panel(s1_turb, "Turbidity (NTU)", turb_lim, "darkorange3", site1_samp_dates, is_bottom = TRUE)
+  p_turb1 <- build_panel(s1_turb, "Turb. (FNU)", s1_turb_lim, "darkorange3", site1_samp_dates, is_bottom = TRUE)
   
   # Site 2 Panels
   p_q2    <- build_panel(s2_q, "Q (m³/s)", q_lim, "blue", site2_samp_dates, title = paste(site2_name, "Brook"))
-  p_no32  <- build_panel(s2_no3, "NO3 (mg/L)", s2_no3_lim, "darkgreen", site2_samp_dates)
-  p_doc2  <- build_panel(s2_doc, "DOC (mg/L)", doc_lim, "saddlebrown", site2_samp_dates)
+  p_no32  <- build_panel(s2_no3, no3_label, s2_no3_lim, "darkgreen", site2_samp_dates)
+  p_doc2  <- build_panel(s2_doc, "DOC (mg/L)", s2_doc_lim, "saddlebrown", site2_samp_dates)
   p_tp2   <- build_panel(s2_tp, "TP (mg/L)", s2_tp_lim, "purple", site2_samp_dates)
-  p_turb2 <- build_panel(s2_turb, "Turbidity (NTU)", turb_lim, "darkorange3", site2_samp_dates, is_bottom = TRUE)
+  p_turb2 <- build_panel(s2_turb, "Turb. (FNU)", s2_turb_lim, "darkorange3", site2_samp_dates, is_bottom = TRUE)
   
   # -------------------------------------------------------------------
-  # 6. STITCH WITH COWPLOT (Hardcoded label_size = 20)
+  # 6. STITCH WITH COWPLOT
   # -------------------------------------------------------------------
   left_col <- plot_grid(p_q1, p_no31, p_doc1, p_tp1, p_turb1, ncol = 1, align = "v", 
-                        labels = c("a)", "b)", "c)", "d)", "e)"), label_x = -0.02, label_size = 20)
+                        labels = c("a)", "b)", "c)", "d)", "e)"), label_x = -0.02, label_size = 30)
   
   right_col <- plot_grid(p_q2, p_no32, p_doc2, p_tp2, p_turb2, ncol = 1, align = "v", 
-                         labels = c("f)", "g)", "h)", "i)", "j)"), label_x = -0.02, label_size = 20)
+                         labels = c("f)", "g)", "h)", "i)", "j)"), label_x = -0.02, label_size = 30)
   
   final_composite <- plot_grid(left_col, right_col, ncol = 2)
   
   padded_final <- ggdraw(final_composite) +
-    theme(plot.margin = margin(t = 10, r = 15, b = 10, l = 25, unit = "pt"))
+    theme(plot.margin = margin(t = 10, r = 15, b = 10, l = 30, unit = "pt"))
   
   return(padded_final)
 }
