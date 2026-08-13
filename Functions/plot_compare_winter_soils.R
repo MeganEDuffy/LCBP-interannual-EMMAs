@@ -6,11 +6,11 @@ library(tidyverse)
 library(lubridate)
 library(cowplot)
 
-plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_file1,
-                                      site2_name, met_file2, snow_file2, soil_file2,
+plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_file1, q_file_1,
+                                      site2_name, met_file2, snow_file2, soil_file2, q_file_2,
                                       resin_file,
-                                      site1_samp_dates = NULL, # New parameter for Site 1 shading
-                                      site2_samp_dates = NULL, # New parameter for Site 2 shading
+                                      site1_samp_dates = NULL, 
+                                      site2_samp_dates = NULL, 
                                       plot_range = c("2022-06-01", "2023-04-30"),
                                       base_font_size = 14) {
   
@@ -54,20 +54,36 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   load_soil <- function(sl_file) {
     read.csv(sl_file, comment.char = "#") %>%
       rename_with(~ "Timestamp", matches("Timestamp|dateTimeText|datetime", ignore.case = TRUE)) %>%
-      mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM"), tz = "UTC")) %>%
+      mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS"), tz = "UTC")) %>%
+      filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
+  }
+  
+  load_discharge <- function(q_file) {
+    dat_q <- read.csv(q_file, comment.char = "#")
+    q_time_col <- names(dat_q)[grep("datetime|timestamp|ISO|Date", names(dat_q), ignore.case = TRUE)][1]
+    q_val_col  <- names(dat_q)[grep("q_cms|Value", names(dat_q), ignore.case = TRUE)][1]
+    
+    dat_q %>% 
+      rename(timestamp = all_of(q_time_col), q_cms = all_of(q_val_col)) %>% 
+      mutate(
+        datetime = parse_date_time(timestamp, orders = c("ymd HMS", "ymd HM", "mdy HMS", "mdy HM"), tz = "UTC"),
+        q_cms = as.numeric(q_cms)
+      ) %>%
       filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
   }
   
   # -------------------------------------------------------------------
   # 3. LOAD ALL DATA
   # -------------------------------------------------------------------
-  met1  <- load_met(met_file1)
-  snow1 <- load_snow(snow_file1)
-  soil1 <- load_soil(soil_file1)
+  met1   <- load_met(met_file1)
+  snow1  <- load_snow(snow_file1)
+  soil1  <- load_soil(soil_file1)
+  q1     <- load_discharge(q_file_1)
   
-  met2  <- load_met(met_file2)
-  snow2 <- load_snow(snow_file2)
-  soil2 <- load_soil(soil_file2)
+  met2   <- load_met(met_file2)
+  snow2  <- load_snow(snow_file2)
+  soil2  <- load_soil(soil_file2)
+  q2     <- load_discharge(q_file_2)
   
   dat_resin <- read.csv(resin_file, comment.char = "#") %>%
     mutate(
@@ -81,20 +97,19 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   # -------------------------------------------------------------------
   # 4. CALCULATE GLOBAL AXIS LIMITS (For 1-to-1 Comparability)
   # -------------------------------------------------------------------
-  # Precip
   max_p <- max(c(met1$raw$Precip, met2$raw$Precip), na.rm = TRUE)
   if (max_p == 0 || !is.finite(max_p)) max_p <- 10
   
-  # Air Temp Range
   temp_min <- -30
   temp_max <- 30
   temp_range <- temp_max - temp_min
   
-  # Snow
   max_snow <- max(c(snow1$snow_cm, snow2$snow_cm), na.rm = TRUE)
   if (max_snow == 0 || !is.finite(max_snow)) max_snow <- 50
   
-  # Soils
+  # Fixed upper limit for discharge secondary axis
+  fixed_max_q <- 15
+  
   s_temp_col1 <- names(soil1)[grep("Temp|temperature", names(soil1), ignore.case = TRUE)][1]
   s_vwc_col1  <- names(soil1)[grep("VWC|vwc", names(soil1), ignore.case = TRUE)][1]
   
@@ -112,9 +127,8 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   # -------------------------------------------------------------------
   # 5. INTERNAL PLOTTING HELPER
   # -------------------------------------------------------------------
-  build_site_panels <- function(site_n, dat_m, dat_m_daily, dat_sn, dat_sl, v_col, t_col, samp_dates) {
+  build_site_panels <- function(site_n, dat_m, dat_m_daily, dat_sn, dat_sl, dat_q, v_col, t_col, samp_dates) {
     
-    # Create an independent shading layer if dates are provided
     shading_layer <- NULL
     if (!is.null(samp_dates) && nrow(samp_dates) > 0) {
       shading_layer <- geom_rect(
@@ -126,7 +140,7 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
 
     # Panel A: Met
     p_met <- ggplot() +
-      shading_layer + # Placed first so it renders behind the data lines
+      shading_layer + 
       geom_col(data = dat_m, aes(x = datetime, y = Precip), fill = "#2F4F4F", alpha = 0.7, width = 86400) +
       geom_line(data = dat_m_daily, aes(x = datetime, y = max_p - (Air_Temp_daily - temp_min) * (max_p / temp_range)), 
                 color = "firebrick", linewidth = 0.8) +
@@ -143,15 +157,25 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
         axis.title.y.left = element_text(color = "#2F4F4F")
       )
     
-    # Panel B: Snow
-    p_snow <- ggplot(dat_sn, aes(x = datetime, y = snow_cm)) +
+    # Panel B: Snowpack Depth & Scaled Discharge Secondary Axis (Capped at 20 cms)
+    p_snow <- ggplot() +
       shading_layer +
-      geom_line(color = "blue4", linewidth = 1) +
-      scale_y_continuous(limits = c(0, max_snow)) +
+      geom_line(data = dat_q, aes(x = datetime, y = (q_cms / fixed_max_q) * max_snow), color = "grey", alpha = 0.75, linewidth = 0.8) +
+      geom_line(data = dat_sn, aes(x = datetime, y = snow_cm), color = "blue4", linewidth = 1) +
+      scale_y_continuous(
+        name = "Snow depth (cm)", 
+        limits = c(0, max_snow),
+        sec.axis = sec_axis(~ . * (fixed_max_q / max_snow), name = "Discharge (cms)")
+      ) +
       scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-      labs(title = paste(site_n, "- Snowpack depth"), y = "Depth (cm)") +
+      labs(title = paste(site_n, "- Snowpack depth & discharge")) +
       theme_minimal(base_size = base_font_size) +
-      theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+      theme(
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank(),
+        axis.title.y.left = element_text(color = "blue4"),
+        axis.title.y.right = element_text(color = "black")
+      )
     
     # Panel C: Soil
     p_soil <- ggplot(dat_sl, aes(x = datetime)) +
@@ -159,7 +183,8 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
       geom_smooth(aes(y = .data[[v_col]]), color = "dodgerblue3", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
       geom_smooth(aes(y = .data[[t_col]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
       scale_y_continuous(
-        name = "VWC (m³/m³)", limits = c(0, max_vwc),
+        #name = "VWC (m³/m³)", limits = c(0, max_vwc),
+        name = "VWC (0-1)", limits = c(0, max_vwc),
         sec.axis = sec_axis(~ . * soil_scale, name = "Soil Temp (°C)")
       ) +
       scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %Y") +
@@ -170,7 +195,6 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
         axis.title.y.right = element_text(color = "darkorange3")
       )
     
-    # Nutrient Boxplot Helper (No shading applied here due to categorical x-axis)
     make_boxplot <- function(species_name, y_limit) {
       dat_sub <- dat_resin %>% filter(Site == site_n & Species == species_name)
       ggplot(dat_sub, aes(x = month_label, y = ug_cm2_month)) +
@@ -182,7 +206,6 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
         theme(axis.text.x = element_text(angle = 30, hjust = 1))
     }
     
-    # Panels D-F: Nutrients
     p_nh4 <- make_boxplot("Ammonium", 30)
     p_no3 <- make_boxplot("Nitrate", 50)
     p_po4 <- make_boxplot("Phosphate", 15)
@@ -193,168 +216,21 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   # -------------------------------------------------------------------
   # 6. GENERATE PANELS & STITCH WITH COWPLOT
   # -------------------------------------------------------------------
-  # Pass the respective sampling dates into the panel builder
-  plots1 <- build_site_panels(site1_name, met1$raw, met1$daily, snow1, soil1, s_vwc_col1, s_temp_col1, site1_samp_dates)
-  plots2 <- build_site_panels(site2_name, met2$raw, met2$daily, snow2, soil2, s_vwc_col2, s_temp_col2, site2_samp_dates)
+  plots1 <- build_site_panels(site1_name, met1$raw, met1$daily, snow1, soil1, q1, s_vwc_col1, s_temp_col1, site1_samp_dates)
+  plots2 <- build_site_panels(site2_name, met2$raw, met2$daily, snow2, soil2, q2, s_vwc_col2, s_temp_col2, site2_samp_dates)
   
-  # Left Column (Site 1)
   left_top <- plot_grid(plots1$met, plots1$snow, plots1$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.2), labels = c("a)", "b)", "c)"), label_x = -0.02)
   left_bot <- plot_grid(plots1$nh4, plots1$no3, plots1$po4, ncol = 1, align = "v", labels = c("d)", "e)", "f)"), label_x = -0.02)
   left_col <- plot_grid(left_top, left_bot, ncol = 1, rel_heights = c(2.2, 1.8))
   
-  # Right Column (Site 2)
   right_top <- plot_grid(plots2$met, plots2$snow, plots2$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.2), labels = c("g)", "h)", "i)"), label_x = -0.02)
   right_bot <- plot_grid(plots2$nh4, plots2$no3, plots2$po4, ncol = 1, align = "v", labels = c("j)", "k)", "l)"), label_x = -0.02)
   right_col <- plot_grid(right_top, right_bot, ncol = 1, rel_heights = c(2.2, 1.8))
   
-  # Stitch Columns Together
   final_composite <- plot_grid(left_col, right_col, ncol = 2)
   
   padded_final <- ggdraw(final_composite) +
     theme(plot.margin = margin(t = 10, r = 15, b = 10, l = 25, unit = "pt"))
   
   return(padded_final)
-}
-
-#################
-# LOAD PACKAGES #
-#################
-
-library(tidyverse)
-library(lubridate)
-library(data.table)
-library(ggplot2)
-library(patchwork)
-
-plot_event_emma_with_soils <- function(site_name, 
-                                       plot_range, 
-                                       q_file, 
-                                       snow_file,
-                                       soil_file,
-                                       emma_frac_file,
-                                       q_lim = c(0, 4),
-                                       base_font_size = 14,
-                                       event_title = NULL) {
-  
-  start_date <- as.POSIXct(plot_range[1], tz = "UTC")
-  end_date   <- as.POSIXct(plot_range[2], tz = "UTC")
-  
-  # -------------------------------------------------------------------
-  # 1. LOAD & PREP SNOW DATA
-  # -------------------------------------------------------------------
-  dat_snow <- read.csv(snow_file, comment.char = "#") %>%
-    rename_with(~ "snow_cm", matches("modeled_snow_depth_cm|snowpack_cm|Snowpack Depth cm", ignore.case = TRUE)) %>%
-    rename_with(~ "Date_col", matches("Date|DATE|datetime|Timestamp", ignore.case = TRUE)) %>%
-    mutate(
-      datetime = parse_date_time(Date_col, orders = c("ymd", "mdy", "ymd HMS", "mdy HM"), tz = "UTC"),
-      snow_cm = as.numeric(gsub("--", NA, as.character(snow_cm)))
-    ) %>%
-    filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
-
-  # -------------------------------------------------------------------
-  # 2. LOAD & PREP SOIL DATA
-  # -------------------------------------------------------------------
-  dat_soil <- read.csv(soil_file, comment.char = "#") %>%
-    rename_with(~ "Timestamp", matches("Timestamp|dateTimeText|datetime", ignore.case = TRUE)) %>%
-    mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS"), tz = "UTC")) %>%
-    filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
-
-  s_temp_col <- names(dat_soil)[grep("Temp|temperature", names(dat_soil), ignore.case = TRUE)][1]
-  s_vwc_col  <- names(dat_soil)[grep("VWC|vwc", names(dat_soil), ignore.case = TRUE)][1]
-
-  max_vwc <- max(dat_soil[[s_vwc_col]], na.rm = TRUE)
-  max_temp <- max(abs(dat_soil[[s_temp_col]]), na.rm = TRUE)
-  if (!is.finite(max_vwc) || max_vwc == 0) max_vwc <- 0.5
-  if (!is.finite(max_temp) || max_temp == 0) max_temp <- 20
-  soil_scale <- max_temp / max_vwc 
-
-  # -------------------------------------------------------------------
-  # 3. LOAD & PREP DISCHARGE & EMMA FRACTIONS
-  # -------------------------------------------------------------------
-  dat_q <- read.csv(q_file, comment.char = "#")
-  q_time_col <- names(dat_q)[grep("datetime|timestamp|ISO|Date", names(dat_q), ignore.case = TRUE)][1]
-  q_val_col  <- names(dat_q)[grep("q_cms|Value", names(dat_q), ignore.case = TRUE)][1]
-  
-  dat_q <- dat_q %>% 
-    rename(timestamp = all_of(q_time_col)) %>%
-    rename(q_cms = all_of(q_val_col)) %>% 
-    mutate(timestamp = ymd_hms(timestamp, tz = "UTC")) %>%
-    filter(timestamp >= start_date & timestamp <= end_date) %>%
-    arrange(timestamp)
-
-  emma_raw <- read.csv(emma_frac_file) %>%
-    mutate(timestamp = ymd_hms(Datetime, tz = "UTC")) %>%
-    filter(timestamp >= start_date & timestamp <= end_date)
-  
-  emma_dt <- as.data.table(dat_q)[as.data.table(emma_raw), roll = "nearest", on = .(timestamp)]
-  
-  gw_col   <- names(emma_dt)[grep("Groundwater", names(emma_dt), ignore.case = TRUE)][1]
-  melt_col <- names(emma_dt)[grep("Snowmelt", names(emma_dt), ignore.case = TRUE)][1]
-  soil_col <- names(emma_dt)[grep("Soil", names(emma_dt), ignore.case = TRUE)][1]
-  
-  emma_data <- emma_dt %>%
-    mutate(
-      q_gw   = q_cms * .data[[gw_col]],
-      q_melt = q_cms * .data[[melt_col]],
-      q_soil = q_cms * .data[[soil_col]]
-    )
-
-  # -------------------------------------------------------------------
-  # 4. BUILD PANELS
-  # -------------------------------------------------------------------
-  
-  # Panel 1: Snowpack Depth
-  p_snow <- ggplot(dat_snow, aes(x = datetime, y = snow_cm)) +
-    geom_line(color = "blue4", linewidth = 1) +
-    scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-    theme_bw(base_size = base_font_size) +
-    labs(title = event_title, y = "Snow (cm)") +
-    theme(axis.title.x = element_blank(), axis.text.x = element_blank(), plot.title = element_text(face = "bold"))
-
-  # Panel 2: Soil Temperature and Moisture
-  p_soil <- ggplot(dat_soil, aes(x = datetime)) +
-    geom_smooth(aes(y = .data[[s_vwc_col]]), color = "dodgerblue3", se = FALSE, linewidth = 0.9, method = "loess", span = 0.15) +
-    geom_smooth(aes(y = .data[[s_temp_col]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 0.9, method = "loess", span = 0.15) +
-    scale_y_continuous(
-      name = "VWC", limits = c(0, max_vwc),
-      sec.axis = sec_axis(~ . * soil_scale, name = "Temp (°C)")
-    ) +
-    scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-    theme_bw(base_size = base_font_size) +
-    theme(
-      axis.title.x = element_blank(), 
-      axis.text.x = element_blank(),
-      axis.title.y.left = element_text(color = "dodgerblue3"),
-      axis.title.y.right = element_text(color = "darkorange3")
-    )
-
-  # Panel 3: EMMA Volumetric Hydrograph (with Meltwater label updated)
-  p_emma <- ggplot() +
-    geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 0.5) +
-    
-    geom_point(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), shape = 17, size = 2) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), alpha = 0.4, linewidth = 0.6) +
-    
-    geom_point(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), shape = 16, size = 2) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), alpha = 0.4, linewidth = 0.6) +
-    
-    geom_point(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), shape = 15, size = 2) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), alpha = 0.4, linewidth = 0.6) +
-    
-    scale_y_continuous(name = "Q (cms)", limits = q_lim, expand = c(0, 0)) +
-    scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %d") +
-    scale_color_manual(values = c("Groundwater" = "blue", "Meltwater" = "gold3", "Soil water" = "firebrick")) +
-    scale_linetype_manual(values = c("Total Q" = "dashed")) +
-    theme_bw(base_size = base_font_size) + 
-    labs(x = "Date", color = "Components", linetype = "") +
-    theme(legend.position = "bottom")
-
-  # -------------------------------------------------------------------
-  # 5. STACK VERTICALLY WITH PATCHWORK
-  # -------------------------------------------------------------------
-  stacked_column <- (p_snow / p_soil / p_emma) + 
-    plot_layout(heights = c(0.9, 1, 1.2), guides = "collect") &
-    theme(legend.position = "bottom")
-
-  return(stacked_column)
 }
