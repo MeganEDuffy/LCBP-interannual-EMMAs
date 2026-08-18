@@ -6,8 +6,8 @@ library(tidyverse)
 library(lubridate)
 library(cowplot)
 
-plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_file1, q_file_1,
-                                      site2_name, met_file2, snow_file2, soil_file2, q_file_2,
+plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_file1_6cm, soil_file1_15cm, q_file_1,
+                                      site2_name, met_file2, snow_file2, soil_file2_6cm, soil_file2_15cm, q_file_2,
                                       resin_file,
                                       site1_samp_dates = NULL, 
                                       site2_samp_dates = NULL, 
@@ -51,10 +51,40 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
       filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
   }
   
-  load_soil <- function(sl_file) {
+  load_soil_6cm <- function(sl_file) {
     read.csv(sl_file, comment.char = "#") %>%
       rename_with(~ "Timestamp", matches("Timestamp|dateTimeText|datetime", ignore.case = TRUE)) %>%
       mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS"), tz = "UTC")) %>%
+      filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
+  }
+  
+  load_soil_15cm <- function(sl_file) {
+    if (is.null(sl_file) || !file.exists(sl_file)) return(NULL)
+    
+    df <- read.csv(sl_file, comment.char = "#", stringsAsFactors = FALSE, check.names = FALSE)
+    df <- df[, names(df) != "" & !is.na(names(df)) & !grepl("^\\.\\.\\.", names(df))]
+    col_names <- names(df)
+    
+    t_idx <- grep("Timestamp|datetime|Date", col_names, ignore.case = TRUE)[1]
+    if (is.na(t_idx)) t_idx <- 1 
+    
+    temp_idx <- intersect(grep("15cm", col_names, ignore.case = TRUE), grep("Temp", col_names, ignore.case = TRUE))[1]
+    vwc_idx  <- intersect(grep("15cm", col_names, ignore.case = TRUE), grep("VWC|Water|Volumetric", col_names, ignore.case = TRUE))[1]
+    
+    if (is.na(t_idx) || is.na(temp_idx) || is.na(vwc_idx)) {
+      stop(sprintf("\n[Column Error] Could not find required 15cm columns in file:\n  -> %s\n", sl_file))
+    }
+    
+    t_col    <- col_names[t_idx]
+    temp_col <- col_names[temp_idx]
+    vwc_col  <- col_names[vwc_idx]
+    
+    df %>%
+      mutate(
+        datetime = parse_date_time(.data[[t_col]], orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS", "ymd"), tz = "UTC"),
+        Soil_Temp = as.numeric(.data[[temp_col]]),
+        VWC = as.numeric(.data[[vwc_col]])
+      ) %>%
       filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
   }
   
@@ -66,7 +96,7 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
     dat_q %>% 
       rename(timestamp = all_of(q_time_col), q_cms = all_of(q_val_col)) %>% 
       mutate(
-        datetime = parse_date_time(timestamp, orders = c("ymd HMS", "ymd HM", "mdy HMS", "mdy HM"), tz = "UTC"),
+        datetime = parse_date_time(timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HM"), tz = "UTC"),
         q_cms = as.numeric(q_cms)
       ) %>%
       filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
@@ -75,15 +105,17 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   # -------------------------------------------------------------------
   # 3. LOAD ALL DATA
   # -------------------------------------------------------------------
-  met1   <- load_met(met_file1)
-  snow1  <- load_snow(snow_file1)
-  soil1  <- load_soil(soil_file1)
-  q1     <- load_discharge(q_file_1)
+  met1     <- load_met(met_file1)
+  snow1    <- load_snow(snow_file1)
+  soil1_6  <- load_soil_6cm(soil_file1_6cm)
+  soil1_15 <- load_soil_15cm(soil_file1_15cm)
+  q1       <- load_discharge(q_file_1)
   
-  met2   <- load_met(met_file2)
-  snow2  <- load_snow(snow_file2)
-  soil2  <- load_soil(soil_file2)
-  q2     <- load_discharge(q_file_2)
+  met2     <- load_met(met_file2)
+  snow2    <- load_snow(snow_file2)
+  soil2_6  <- load_soil_6cm(soil_file2_6cm)
+  soil2_15 <- load_soil_15cm(soil_file2_15cm)
+  q2       <- load_discharge(q_file_2)
   
   dat_resin <- read.csv(resin_file, comment.char = "#") %>%
     mutate(
@@ -95,7 +127,7 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
     mutate(month_label = factor(format(Date, "%b"), levels = month.abb[c(6:12, 1:5)]))
   
   # -------------------------------------------------------------------
-  # 4. CALCULATE GLOBAL AXIS LIMITS (For 1-to-1 Comparability)
+  # 4. CALCULATE GLOBAL AXIS LIMITS
   # -------------------------------------------------------------------
   max_p <- max(c(met1$raw$Precip, met2$raw$Precip), na.rm = TRUE)
   if (max_p == 0 || !is.finite(max_p)) max_p <- 10
@@ -107,27 +139,29 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   max_snow <- max(c(snow1$snow_cm, snow2$snow_cm), na.rm = TRUE)
   if (max_snow == 0 || !is.finite(max_snow)) max_snow <- 50
   
-  # Fixed upper limit for discharge secondary axis
   fixed_max_q <- 15
   
-  s_temp_col1 <- names(soil1)[grep("Temp|temperature", names(soil1), ignore.case = TRUE)][1]
-  s_vwc_col1  <- names(soil1)[grep("VWC|vwc", names(soil1), ignore.case = TRUE)][1]
+  s_temp_col1 <- names(soil1_6)[grep("Temp|temperature", names(soil1_6), ignore.case = TRUE)][1]
+  s_vwc_col1  <- names(soil1_6)[grep("VWC|vwc", names(soil1_6), ignore.case = TRUE)][1]
+  s_temp_col2 <- names(soil2_6)[grep("Temp|temperature", names(soil2_6), ignore.case = TRUE)][1]
+  s_vwc_col2  <- names(soil2_6)[grep("VWC|vwc", names(soil2_6), ignore.case = TRUE)][1]
   
-  s_temp_col2 <- names(soil2)[grep("Temp|temperature", names(soil2), ignore.case = TRUE)][1]
-  s_vwc_col2  <- names(soil2)[grep("VWC|vwc", names(soil2), ignore.case = TRUE)][1]
+  max_vwc <- max(c(soil1_6[[s_vwc_col1]], soil2_6[[s_vwc_col2]], if(!is.null(soil1_15)) soil1_15$VWC else NULL, if(!is.null(soil2_15)) soil2_15$VWC else NULL), na.rm = TRUE)
+  max_temp <- max(c(abs(soil1_6[[s_temp_col1]]), abs(soil2_6[[s_temp_col2]]), if(!is.null(soil1_15)) abs(soil1_15$Soil_Temp) else NULL, if(!is.null(soil2_15)) abs(soil2_15$Soil_Temp) else NULL), na.rm = TRUE)
   
-  max_vwc <- max(c(soil1[[s_vwc_col1]], soil2[[s_vwc_col2]]), na.rm = TRUE)
-  max_temp <- max(c(abs(soil1[[s_temp_col1]]), abs(soil2[[s_temp_col2]])), na.rm = TRUE)
-  
+  min_soil_temp <- min(c(soil1_6[[s_temp_col1]], soil2_6[[s_temp_col2]], if(!is.null(soil1_15)) soil1_15$Soil_Temp else NULL, if(!is.null(soil2_15)) soil2_15$Soil_Temp else NULL), na.rm = TRUE)
+  if (!is.finite(min_soil_temp)) min_soil_temp <- 0
+
   if (max_vwc == 0 || !is.finite(max_vwc)) max_vwc <- 0.5
   if (max_temp == 0 || !is.finite(max_temp)) max_temp <- 20
   
   soil_scale <- max_temp / max_vwc 
+  min_y_limit <- if (min_soil_temp < 0) min_soil_temp / soil_scale else 0
 
   # -------------------------------------------------------------------
   # 5. INTERNAL PLOTTING HELPER
   # -------------------------------------------------------------------
-  build_site_panels <- function(site_n, dat_m, dat_m_daily, dat_sn, dat_sl, dat_q, v_col, t_col, samp_dates) {
+  build_site_panels <- function(site_n, dat_m, dat_m_daily, dat_sn, dat_sl_6, dat_sl_15, dat_q, v_col6, t_col6, samp_dates) {
     
     shading_layer <- NULL
     if (!is.null(samp_dates) && nrow(samp_dates) > 0) {
@@ -157,7 +191,7 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
         axis.title.y.left = element_text(color = "#2F4F4F")
       )
     
-    # Panel B: Snowpack Depth & Scaled Discharge Secondary Axis (Capped at 20 cms)
+    # Panel B: Snowpack Depth & Discharge
     p_snow <- ggplot() +
       shading_layer +
       geom_line(data = dat_q, aes(x = datetime, y = (q_cms / fixed_max_q) * max_snow), color = "grey", alpha = 0.75, linewidth = 0.8) +
@@ -177,18 +211,26 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
         axis.title.y.right = element_text(color = "black")
       )
     
-    # Panel C: Soil
-    p_soil <- ggplot(dat_sl, aes(x = datetime)) +
+    # Panel C: Consolidated Soil Panel (6 cm & 15 cm with depth line-weight distinction)
+    p_soil <- ggplot() +
       shading_layer +
-      geom_smooth(aes(y = .data[[v_col]]), color = "dodgerblue3", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
-      geom_smooth(aes(y = .data[[t_col]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1, method = "loess", span = 0.15) +
+      # 6 cm VWC (Thinner line)
+      geom_smooth(data = dat_sl_6, aes(x = datetime, y = .data[[v_col6]]), color = "dodgerblue3", se = FALSE, linewidth = 1.4, method = "loess", span = 0.15) +
+      # 15 cm VWC (Heavier line)
+      { if (!is.null(dat_sl_15)) geom_smooth(data = dat_sl_15, aes(x = datetime, y = VWC), color = "dodgerblue4", se = FALSE, linewidth = 2, method = "loess", span = 0.15) } +
+      # 6 cm Temp (Thinner dotted line)
+      geom_smooth(data = dat_sl_6, aes(x = datetime, y = .data[[t_col6]] / soil_scale), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1.4, method = "loess", span = 0.15) +
+      # 15 cm Temp (Heavier dotted line)
+      { if (!is.null(dat_sl_15)) geom_smooth(data = dat_sl_15, aes(x = datetime, y = Soil_Temp / soil_scale), color = "chocolate4", linetype = "dotted", se = FALSE, linewidth = 2, method = "loess", span = 0.15) } +
       scale_y_continuous(
-        #name = "VWC (m³/m³)", limits = c(0, max_vwc),
-        name = "VWC (0-1)", limits = c(0, max_vwc),
+        name = "VWC (0-1)", limits = c(min_y_limit, max_vwc),
         sec.axis = sec_axis(~ . * soil_scale, name = "Soil Temp (°C)")
       ) +
       scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %Y") +
-      labs(title = paste(site_n, "- Soil moisture & temp, 6 cm"), x = "Date") +
+      labs(
+        title = bquote(.(paste0(site_n, " - Soil moisture & temp (6 cm &")) ~ bold("15 cm") * ")"), 
+        x = "Date"
+      ) +
       theme_minimal(base_size = base_font_size) +
       theme(
         axis.title.y.left = element_text(color = "dodgerblue3"),
@@ -214,18 +256,18 @@ plot_compare_winter_soils <- function(site1_name, met_file1, snow_file1, soil_fi
   }
   
   # -------------------------------------------------------------------
-  # 6. GENERATE PANELS & STITCH WITH COWPLOT
+  # 6. GENERATE PANELS & STITCH WITH COWPLOT (Adjusted for 3 top panels)
   # -------------------------------------------------------------------
-  plots1 <- build_site_panels(site1_name, met1$raw, met1$daily, snow1, soil1, q1, s_vwc_col1, s_temp_col1, site1_samp_dates)
-  plots2 <- build_site_panels(site2_name, met2$raw, met2$daily, snow2, soil2, q2, s_vwc_col2, s_temp_col2, site2_samp_dates)
+  plots1 <- build_site_panels(site1_name, met1$raw, met1$daily, snow1, soil1_6, soil1_15, q1, s_vwc_col1, s_temp_col1, site1_samp_dates)
+  plots2 <- build_site_panels(site2_name, met2$raw, met2$daily, snow2, soil2_6, soil2_15, q2, s_vwc_col2, s_temp_col2, site2_samp_dates)
   
-  left_top <- plot_grid(plots1$met, plots1$snow, plots1$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.2), labels = c("a)", "b)", "c)"), label_x = -0.02)
+  left_top <- plot_grid(plots1$met, plots1$snow, plots1$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.3), labels = c("a)", "b)", "c)"), label_x = -0.02)
   left_bot <- plot_grid(plots1$nh4, plots1$no3, plots1$po4, ncol = 1, align = "v", labels = c("d)", "e)", "f)"), label_x = -0.02)
-  left_col <- plot_grid(left_top, left_bot, ncol = 1, rel_heights = c(2.2, 1.8))
+  left_col <- plot_grid(left_top, left_bot, ncol = 1, rel_heights = c(3.0, 1.8))
   
-  right_top <- plot_grid(plots2$met, plots2$snow, plots2$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.2), labels = c("g)", "h)", "i)"), label_x = -0.02)
+  right_top <- plot_grid(plots2$met, plots2$snow, plots2$soil, ncol = 1, align = "v", rel_heights = c(1, 1, 1.3), labels = c("g)", "h)", "i)"), label_x = -0.02)
   right_bot <- plot_grid(plots2$nh4, plots2$no3, plots2$po4, ncol = 1, align = "v", labels = c("j)", "k)", "l)"), label_x = -0.02)
-  right_col <- plot_grid(right_top, right_bot, ncol = 1, rel_heights = c(2.2, 1.8))
+  right_col <- plot_grid(right_top, right_bot, ncol = 1, rel_heights = c(3.0, 1.8))
   
   final_composite <- plot_grid(left_col, right_col, ncol = 2)
   

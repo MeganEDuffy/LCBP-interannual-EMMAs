@@ -1,4 +1,4 @@
-,Timestamp,Temperature.SoilTemp_15cm@HW_pit1,Temperature.SoilTemp_30cm@HW_pit1,Temperature.SoilTemp_45cm@HW_pit1,Volumetric Water Content.VWC_15cm@HW_pit1
+,Timestamp,Temperature.SoilTemp_15cm@HW_pit1,Temperature.SoilTemp_30cm@HW_pit1,Temperature.SoilTemp_45cm@HW_pit1,VWC_15cm@HW_pit1
 1,2021-10-01 01:00:00,13,14.2,14.6,0.244
 2,2021-10-01 01:15:00,13,14.2,14.6,0.244
 3,2021-10-01 01:30:00,13,14.2,14.6,0.244
