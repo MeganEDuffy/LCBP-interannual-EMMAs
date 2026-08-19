@@ -14,6 +14,7 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
                                         s1_doc_lim = c(0, 35), s2_doc_lim = c(0, 15),
                                         s1_tp_lim = c(0, 1), s2_tp_lim = c(0, 0.3), 
                                         s1_turb_lim = c(0, 1000), s2_turb_lim = c(0, 200),
+                                        background_q_max = 9, # Fixed max Q for background scaling
                                         base_font_size = 14) {
   
   # -------------------------------------------------------------------
@@ -70,9 +71,9 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   s2_turb <- load_sensor(s2_turb_file, "turb|Value")
   
   # -------------------------------------------------------------------
-  # 4. PANEL BUILDER HELPER (Supports Expressions for y_label)
+  # 4. PANEL BUILDER HELPER (Proportionally scales background Q trace)
   # -------------------------------------------------------------------
-  build_panel <- function(df, y_label, y_lims, l_color, samp_dates, is_bottom = FALSE, title = NULL) {
+  build_panel <- function(df, y_label, y_lims, l_color, samp_dates, is_bottom = FALSE, title = NULL, q_df = NULL) {
     
     p <- ggplot() +
       geom_rect(data = winter_shade, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
@@ -81,6 +82,18 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
       if (!is.null(samp_dates) && nrow(samp_dates) > 0) {
         p <- p + geom_rect(data = samp_dates, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
                            fill = "yellow", alpha = 0.35, inherit.aes = FALSE)
+      }
+      
+      # Scale background hydrograph relative to background_q_max and the panel's local y limits
+      if (!is.null(q_df) && nrow(q_df) > 0) {
+        y_min <- y_lims[1]
+        y_max <- y_lims[2]
+        
+        q_scaled_df <- q_df %>%
+          mutate(scaled_value = y_min + (value / background_q_max) * (y_max - y_min))
+        
+        p <- p + geom_line(data = q_scaled_df, aes(x = timestamp, y = scaled_value), 
+                           color = "grey60", alpha = 0.7, linewidth = 0.6, na.rm = TRUE)
       }
       
       if (!is.null(df) && nrow(df) > 0) {
@@ -96,27 +109,27 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
       if (!is_bottom) p <- p + theme(axis.text.x = element_blank())
       if (!is.null(title)) p <- p + labs(title = title)
       
-    return(p)
+      return(p)
   }
   
   # -------------------------------------------------------------------
-  # 5. BUILD INDIVIDUAL PANELS (Using bquote for Nitrate superscript)
+  # 5. BUILD INDIVIDUAL PANELS
   # -------------------------------------------------------------------
   no3_label <- bquote(NO[3]^{"-"}~"(mg/L)")
   
   # Site 1 Panels
   p_q1    <- build_panel(s1_q, "Q (m³/s)", q_lim, "blue", site1_samp_dates, title = paste(site1_name, "Brook"))
-  p_no31  <- build_panel(s1_no3, no3_label, s1_no3_lim, "darkgreen", site1_samp_dates)
-  p_doc1  <- build_panel(s1_doc, "DOC (mg/L)", s1_doc_lim, "saddlebrown", site1_samp_dates)
-  p_tp1   <- build_panel(s1_tp, "TP (mg/L)", s1_tp_lim, "purple", site1_samp_dates)
-  p_turb1 <- build_panel(s1_turb, "Turb. (FNU)", s1_turb_lim, "darkorange3", site1_samp_dates, is_bottom = TRUE)
+  p_no31  <- build_panel(s1_no3, no3_label, s1_no3_lim, "darkgreen", site1_samp_dates, q_df = s1_q)
+  p_doc1  <- build_panel(s1_doc, "DOC (mg/L)", s1_doc_lim, "saddlebrown", site1_samp_dates, q_df = s1_q)
+  p_tp1   <- build_panel(s1_tp, "TP (mg/L)", s1_tp_lim, "purple", site1_samp_dates, q_df = s1_q)
+  p_turb1 <- build_panel(s1_turb, "Turb. (FNU)", s1_turb_lim, "darkorange3", site1_samp_dates, is_bottom = TRUE, q_df = s1_q)
   
   # Site 2 Panels
   p_q2    <- build_panel(s2_q, "Q (m³/s)", q_lim, "blue", site2_samp_dates, title = paste(site2_name, "Brook"))
-  p_no32  <- build_panel(s2_no3, no3_label, s2_no3_lim, "darkgreen", site2_samp_dates)
-  p_doc2  <- build_panel(s2_doc, "DOC (mg/L)", s2_doc_lim, "saddlebrown", site2_samp_dates)
-  p_tp2   <- build_panel(s2_tp, "TP (mg/L)", s2_tp_lim, "purple", site2_samp_dates)
-  p_turb2 <- build_panel(s2_turb, "Turb. (FNU)", s2_turb_lim, "darkorange3", site2_samp_dates, is_bottom = TRUE)
+  p_no32  <- build_panel(s2_no3, no3_label, s2_no3_lim, "darkgreen", site2_samp_dates, q_df = s2_q)
+  p_doc2  <- build_panel(s2_doc, "DOC (mg/L)", s2_doc_lim, "saddlebrown", site2_samp_dates, q_df = s2_q)
+  p_tp2   <- build_panel(s2_tp, "TP (mg/L)", s2_tp_lim, "purple", site2_samp_dates, q_df = s2_q)
+  p_turb2 <- build_panel(s2_turb, "Turb. (FNU)", s2_turb_lim, "darkorange3", site2_samp_dates, is_bottom = TRUE, q_df = s2_q)
   
   # -------------------------------------------------------------------
   # 6. STITCH WITH COWPLOT
