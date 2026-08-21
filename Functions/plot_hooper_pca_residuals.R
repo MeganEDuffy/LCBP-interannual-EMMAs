@@ -105,7 +105,7 @@ plot_hooper_pca_residuals <- function(chem_data_file,
       strip.text = element_text(face = "bold")
     ) +
     labs(
-      title = paste0(site_name, " Brook: residuals in 1-5D"),
+      title = paste0(site_name, " Brook: residuals in 1-6D"),
       x = "Observed concentration (standardized z-score)",
       y = "PCA residual (observed - reconstructed)"
     )
@@ -119,7 +119,7 @@ plot_hooper_pca_residuals <- function(chem_data_file,
     n_dims    <- length(unique(combined_plot_df$Dimension))
     
     ggsave(filename = file_path, plot = p, width = max(11, n_tracers * 1.6), height = max(7, n_dims * 2.0), dpi = 300)
-    message(paste0("✅ Saved combined residual plot to: ", file_path))
+    #message(paste0("✅ Saved combined residual plot to: ", file_path))
   }
   
   return(p)

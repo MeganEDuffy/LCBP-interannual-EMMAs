@@ -89,7 +89,7 @@ plot_tracer_bivariate_grid <- function(chem_data_file,
       strip.text = element_text(face = "bold", size = base_font_size)
     ) +
     labs(
-      title = paste0(site_name, " Brook: Bivariate Solute-Solute Matrix (Max n = ", n_samples, ")")
+      title = paste0(site_name, " Brook: Bivariate solute-solute matrix (max n = ", n_samples, ")")
     )
   
   # --- 5. SAVE PLOT ---
@@ -101,7 +101,7 @@ plot_tracer_bivariate_grid <- function(chem_data_file,
   plot_dim <- max(8, n_tracers * 1.8)
   
   ggsave(filename = file_path, plot = p_grid, width = plot_dim, height = plot_dim, dpi = 300)
-  message(paste0("✅ Bivariate grid successfully saved to: ", file_path))
+  #message(paste0("✅ Bivariate grid successfully saved to: ", file_path))
   
   return(list(plot = p_grid, n_samples = n_samples, valid_tracers = valid_solutes))
 }
