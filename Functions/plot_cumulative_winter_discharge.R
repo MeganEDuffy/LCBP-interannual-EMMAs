@@ -2,6 +2,8 @@
 # LOAD PACKAGES #
 #################
 
+# Use r-usgs environment to run
+
 library(tidyverse)
 library(dataRetrieval)
 library(lubridate)
@@ -11,7 +13,8 @@ plot_cumulative_winter_discharge <- function(site_number,
                                              site_name, 
                                              panel_label = "a)", 
                                              start_date = "1929-10-01", 
-                                             end_date = "2025-01-03") {
+                                             end_date = "2025-01-03",
+                                             output_dir = NULL, ...) {
   
   # --- 1. RETRIEVE DATA ---
   qdat_raw <- read_waterdata_daily(
@@ -32,8 +35,6 @@ plot_cumulative_winter_discharge <- function(site_number,
     )
   
   # --- 3. FILTER FOR ASTRONOMICAL WINTER (Dec 21 - March 20) ---
-  # Define winter window: Dec 21 to Dec 31 OR Jan 1 to March 20
-  # We associate the winter period with the calendar year in which it ends (e.g., Winter 2023 = Dec 2022-Mar 2023)
   qdat <- qdat %>%
     mutate(
       WinterYear = case_when(
@@ -51,12 +52,34 @@ plot_cumulative_winter_discharge <- function(site_number,
     summarise(TotalWinterQ = sum(Qcms * 86400, na.rm = TRUE), .groups = "drop") %>%
     filter(!is.na(WinterYear))
   
-  # --- 5. STATS ---
+  # --- 5. STATS & REGRESSION METRICS ---
   win_mod <- lm(TotalWinterQ ~ WinterYear, data = d_winter)
   mod_summary <- summary(win_mod)
+  
   r2_val <- mod_summary$r.squared
   f_stat <- mod_summary$fstatistic
   p_val <- pf(f_stat[1], f_stat[2], f_stat[3], lower.tail = FALSE)
+  
+  # Extract slope and intercept for 1928 to 2025 calculations
+  intercept <- coef(win_mod)[1]
+  slope <- coef(win_mod)[2]
+  
+  pred_1928 <- intercept + slope * 1928
+  pred_2025 <- intercept + slope * 2025
+  abs_increase <- pred_2025 - pred_1928
+  pct_increase <- (abs_increase / pred_1928) * 100
+  
+  # Create summary stats data frame for the table
+  stats_df <- data.frame(
+    Site = site_name,
+    Site_Number = site_number,
+    Abs_Increase_1928_2025_cms_days = abs_increase,
+    Pct_Increase_1928_2025 = pct_increase,
+    R_squared = r2_val,
+    p_value = p_val,
+    Slope = slope
+  )
+  
   p_text <- if (p_val < 0.001) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_val))
   r2_expr <- bquote(R^2 == .(sprintf("%.2f", r2_val)))
   
@@ -92,5 +115,6 @@ plot_cumulative_winter_discharge <- function(site_number,
       legend.position = "right"
     )
   
-  return(p)
+  # Return both the plot and the statistics table data frame
+  return(list(plot = p, stats = stats_df))
 }
