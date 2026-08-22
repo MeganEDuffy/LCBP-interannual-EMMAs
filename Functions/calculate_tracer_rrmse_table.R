@@ -3,7 +3,8 @@ library(tidyverse)
 calculate_tracer_rrmse_table <- function(chem_data_file, 
                                           site_name, 
                                           max_dims = 6, 
-                                          selected_tracers = NULL) {
+                                          selected_tracers = NULL,
+                                          output_dir = NULL) {
   
   # --- 1. READ AND CLEAN DATA ---
   raw_df <- read.csv(chem_data_file, stringsAsFactors = FALSE)
@@ -78,7 +79,7 @@ calculate_tracer_rrmse_table <- function(chem_data_file,
       obs <- plot_data[[tracer]]
       proj <- x_hat[, tracer]
       
-      obs_mean <- mean(obs, ra.rm = TRUE)
+      obs_mean <- mean(obs, na.rm = TRUE)
       rmse <- sqrt(mean((obs - proj)^2))
       rrmse_val <- rmse / abs(obs_mean)
       
@@ -98,6 +99,15 @@ calculate_tracer_rrmse_table <- function(chem_data_file,
     pivot_wider(names_from = Dimension, values_from = RRMSE) %>%
     mutate(N_Samples = n_samples) %>%
     select(Site, Tracer, N_Samples, everything())
+  
+  # --- 7. SAVE TO CSV IF OUTPUT DIRECTORY IS PROVIDED ---
+  if (!is.null(output_dir)) {
+    dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+    safe_site_name <- gsub(" ", "_", site_name)
+    file_path <- file.path(output_dir, paste0(safe_site_name, "_rrmse_table.csv"))
+    write.csv(wide_df, file_path, row.names = FALSE)
+    #message(sprintf("✅ RRMSE table successfully saved to: %s", file_path))
+  }
   
   return(wide_df)
 }
