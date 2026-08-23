@@ -126,7 +126,7 @@ def plot_event_pca_with_avgEM(
 
     # Streamwater points
     sw = combined[combined["Group"] == "Streamwater"]
-    ax.scatter(sw["PC1"], sw["PC2"], marker='+', s=100, c='blue', alpha=0.9, label='Streamwater')
+    ax.scatter(sw["PC1"], sw["PC2"], marker='X', s=110, c='royalblue', edgecolors='royalblue', alpha=1, label='Streamwater')
 
     # Endmember markers/colors
     endmember_markers = {
@@ -357,6 +357,7 @@ def plot_event_pca_explore_samples(
     stream = data[
         (data["Site"] == site) &
         (data["Type"].isin(["Grab", "Grab/Isco", "Baseflow", "Isco"])) &
+        #(data["Type"].isin(["Grab", "Grab/Isco", "Isco"])) & # Option to include or disclude baseflow in streamwater sample set
         (data["Date"] >= pd.to_datetime(start_date)) &
         (data["Date"] <= pd.to_datetime(end_date))
     ].copy()
