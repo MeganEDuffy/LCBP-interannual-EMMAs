@@ -126,7 +126,7 @@ def plot_event_pca_with_avgEM(
 
     # Streamwater points
     sw = combined[combined["Group"] == "Streamwater"]
-    ax.scatter(sw["PC1"], sw["PC2"], marker='X', s=110, c='royalblue', edgecolors='royalblue', alpha=1, label='Streamwater')
+    ax.scatter(sw["PC1"], sw["PC2"], marker='o', s=110, c='none', edgecolors='royalblue', linewidth = 2, alpha=1, label='Streamwater')
 
     # Endmember markers/colors
     endmember_markers = {
@@ -150,7 +150,7 @@ def plot_event_pca_with_avgEM(
                 color=color, ecolor="black",
                 elinewidth=1.5, capsize=4,
                 markersize=15, markeredgecolor='black',
-                label=f"{etype} mean ±1 SD"
+                label=f"{etype}"
             )
 
     # Draw mixing space polygon
@@ -184,7 +184,7 @@ def plot_event_pca_with_avgEM(
     output_path = os.path.join("/home/millieginty/OneDrive/git-repos/LCBP-interannual-EMMAs/Output/PCA-Mixing", filename)
 
     fig.savefig(output_path, dpi=300)
-    print(f"Saved plot to: {output_path}")
+    print(f"Saved plot to output dir")
     
     ax.legend(bbox_to_anchor=(1.02, 1.02), loc="upper left")
     plt.tight_layout()
@@ -339,6 +339,7 @@ def plot_event_pca_explore_samples(
     Fits PCA on streamwater data for a specified site and date range, then 
     projects and plots individual exploratory candidate samples as distinct 
     points labeled by their Sample ID, color-coded by sample Type.
+    Also labels streamwater samples with smaller Sample ID text.
     """
     # Site-specific tracers (August 2026 configuration)
     if site == "Wade":
@@ -357,7 +358,6 @@ def plot_event_pca_explore_samples(
     stream = data[
         (data["Site"] == site) &
         (data["Type"].isin(["Grab", "Grab/Isco", "Baseflow", "Isco"])) &
-        #(data["Type"].isin(["Grab", "Grab/Isco", "Isco"])) & # Option to include or disclude baseflow in streamwater sample set
         (data["Date"] >= pd.to_datetime(start_date)) &
         (data["Date"] <= pd.to_datetime(end_date))
     ].copy()
@@ -368,7 +368,8 @@ def plot_event_pca_explore_samples(
         (data["Sample ID"].isin(exploratory_ids))
     ].copy()
 
-    subset_stream = stream[tracers].dropna().copy()
+    # Keep Sample ID alongside tracers for streamwater annotation
+    subset_stream = stream[tracers + ['Sample ID']].dropna(subset=tracers).copy()
     
     # Handle missing values for exploratory samples (filling with mean if needed)
     subset_explore = exploratory[tracers].copy()
@@ -403,8 +404,17 @@ def plot_event_pca_explore_samples(
         "legend.fontsize": 14
     })
 
-    # Plot event streamwater background cloud
+    # Plot event streamwater background cloud (markers)
     ax.scatter(subset_stream["PC1"], subset_stream["PC2"], marker='o', s=110, c='none', edgecolors='royalblue', alpha=1, label='Streamwater')
+
+    # Annotate each streamwater point with a smaller Sample ID label (~half the size of endmembers)
+    for _, row in subset_stream.iterrows():
+        ax.annotate(
+            row["Sample ID"],
+            (row["PC1"], row["PC2"]),
+            xytext=(4, 4), textcoords='offset points',
+            fontsize=5.5, fontweight='normal', color='royalblue', alpha=0.9
+        )
 
     # Define color map for requested end-member types
     type_colors = {

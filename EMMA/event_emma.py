@@ -45,14 +45,15 @@ def plot_event_pca(
 
     # Site-specific tracers
     if site == "Wade":
-        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L']
+        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']                           # Aug '26 WRR resubmission traacer selection after more thourough vetting
     elif site == "Hungerford":
-        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']  # Aug '26 WRR resubmission traacer selection after more thourough vetting  
     elif site == "Potash":
-        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
-        tracers = ['Ca_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     else:
-        raise ValueError("Site not recognized. Use 'Wade', 'Hungerford', or 'Potash'.")
+        raise ValueError("Site not recognized. Use 'Wade', 'Potash', or 'Hungerford'.")
 
     # Ensure datetime column is datetime type
     data['Datetime'] = (data['Date'] + ' ' + data['Time']) # Combine the strings of original inventory Date and Time cols
@@ -171,16 +172,17 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
         fractions_df (DataFrame): Streamwater samples with source fractions
     """
     
-#1. Site-specific tracer selection
+    # Site-specific tracers
     if site == "Wade":
-        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L']
+        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']                           # Aug '26 WRR resubmission traacer selection after more thourough vetting
     elif site == "Hungerford":
-        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']  # Aug '26 WRR resubmission traacer selection after more thourough vetting  
     elif site == "Potash":
-        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
-        tracers = ['Ca_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     else:
-        raise ValueError("Site not recognized. Use 'Wade', 'Hungerford', or 'Potash'.")
+        raise ValueError("Site not recognized. Use 'Wade', 'Potash', or 'Hungerford'.")
 
 # 2. Ensure datetime format
     #data["Date"] = pd.to_datetime(data["Date"], format="%m/%d/%Y", errors="coerce") #OLD
@@ -392,7 +394,7 @@ def plot_observed_vs_predicted(title, predicted_df, stream_df, tracer_cols, outp
     plt.savefig(filename, dpi=300, bbox_inches="tight")
     plt.show()
 
-    #print(f"✅ Figure saved to {filename}")
+    print(f"✅ Figure saved to output dir")
 
 def plot_emma_fractions_with_hydrograph(
     fractions_df,
@@ -428,7 +430,7 @@ def plot_emma_fractions_with_hydrograph(
     # Read and prep snowpack (optional)
     # ------------------------------------------------------------------
     if snowpack_csv is not None:
-        snow = pd.read_csv(snowpack_csv)
+        snow = pd.read_csv(snowpack_csv, comment="#") # Added comment="#" here
         snow[snowpack_time_col] = pd.to_datetime(snow[snowpack_time_col])
 
         snow = snow[
@@ -458,7 +460,7 @@ def plot_emma_fractions_with_hydrograph(
     # Define stack order and colors
     # ------------------------------------------------------------------
     baseflow_keys = ["Baseflow", "Groundwater"]
-    soil_keys = ["Soil water lysimeter dry", "Soil water lysimeter wet", "Soil water"]
+    soil_keys = ["Soil water lysimeter dry", "Soil water lysimeter wet", "Soil water lysimeter", "Soil water"]
     melt_keys = ["Snowmelt lysimeter", "Meltwater", "Snowmelt", "Snow"]
 
     def match_cols(keys):
