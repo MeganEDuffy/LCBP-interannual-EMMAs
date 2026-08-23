@@ -39,10 +39,11 @@ def plot_event_pca_with_avgEM(
 
     # Site-specific tracers
     if site == "Wade":
-        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original tracer selection
-        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Alternative Wade tracer selection
+        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']                           # Aug '26 WRR resubmission traacer selection after more thourough vetting
     elif site == "Hungerford":
-        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']  # Aug '26 WRR resubmission traacer selection after more thourough vetting  Ca, Cl, Cu, d18O, dD, K, Mg, Na
     elif site == "Potash":
         tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     else:
@@ -240,13 +241,17 @@ def plot_event_pca_with_error(
     analytical_dict,  
     title="Event-Specific PCA"
 ):
-    # --- SITE SPECIFIC TRACERS ---
+    # Site-specific tracers
     if site == "Wade":
-        tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L']
+        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']                           # Aug '26 WRR resubmission traacer selection after more thourough vetting
     elif site == "Hungerford":
-        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Original Jan '26 WRR submission tracer selection
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']  # Aug '26 WRR resubmission traacer selection after more thourough vetting  Ca, Cl, Cu, d18O, dD, K, Mg, Na
     elif site == "Potash":
         tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+    else:
+        raise ValueError("Site not recognized. Use 'Wade', 'Potash', or 'Hungerford'.")
     
     # Ensure datetime formatting
     data["Date"] = pd.to_datetime(data["Date"], format="%m/%d/%Y", errors="coerce")
@@ -317,3 +322,133 @@ def plot_event_pca_with_error(
     plt.show()
 
     return stats_em, pca, scaler
+
+##############################################
+# function to explore end-memners in PCA space
+##############################################
+
+def plot_event_pca_explore_samples(
+    data,
+    site,
+    start_date,
+    end_date,
+    exploratory_ids,
+    title="Exploratory End-Member Projections"
+):
+    """
+    Fits PCA on streamwater data for a specified site and date range, then 
+    projects and plots individual exploratory candidate samples as distinct 
+    points labeled by their Sample ID, color-coded by sample Type.
+    """
+    # Site-specific tracers (August 2026 configuration)
+    if site == "Wade":
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']
+    elif site == "Hungerford":
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+    elif site == "Potash":
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
+    else:
+        raise ValueError("Site not recognized. Use 'Wade', 'Potash', or 'Hungerford'.")
+
+    # Ensure datetime formatting
+    data["Date"] = pd.to_datetime(data["Date"], format="%m/%d/%Y", errors="coerce")
+
+    # 1. Subset streamwater (mixture) to fit the PCA space
+    stream = data[
+        (data["Site"] == site) &
+        (data["Type"].isin(["Grab", "Grab/Isco", "Baseflow", "Isco"])) &
+        (data["Date"] >= pd.to_datetime(start_date)) &
+        (data["Date"] <= pd.to_datetime(end_date))
+    ].copy()
+
+    # 2. Subset exploratory candidate samples by Sample ID
+    exploratory = data[
+        (data["Site"] == site) &
+        (data["Sample ID"].isin(exploratory_ids))
+    ].copy()
+
+    subset_stream = stream[tracers].dropna().copy()
+    
+    # Handle missing values for exploratory samples (filling with mean if needed)
+    subset_explore = exploratory[tracers].copy()
+    subset_explore = subset_explore.fillna(subset_explore.mean())
+    subset_explore["Sample ID"] = exploratory["Sample ID"].values
+    subset_explore["Type"] = exploratory["Type"].values
+
+    # 3. Fit PCA on streamwater data
+    scaler = StandardScaler()
+    scaled_stream = scaler.fit_transform(subset_stream[tracers])
+
+    pca = PCA(n_components=2)
+    stream_pca_result = pca.fit_transform(scaled_stream)
+    subset_stream["PC1"] = stream_pca_result[:, 0]
+    subset_stream["PC2"] = stream_pca_result[:, 1]
+
+    # 4. Project exploratory samples into the stream PCA space
+    scaled_explore = scaler.transform(subset_explore[tracers])
+    explore_pca_result = pca.transform(scaled_explore)
+    subset_explore["PC1"] = explore_pca_result[:, 0]
+    subset_explore["PC2"] = explore_pca_result[:, 1]
+
+    # 5. Plotting
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    mpl.rcParams.update({
+        "font.size": 16,
+        "axes.titlesize": 16,
+        "axes.labelsize": 16,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "legend.fontsize": 14
+    })
+
+    # Plot event streamwater background cloud
+    ax.scatter(subset_stream["PC1"], subset_stream["PC2"], marker='o', s=110, c='none', edgecolors='royalblue', alpha=1, label='Streamwater')
+
+    # Define color map for requested end-member types
+    type_colors = {
+        "Groundwater": "darkblue",
+        "Baseflow": "deepskyblue",
+        "Snowmelt lysimeter": "gold",
+        "Snow": "yellow",
+        "Soil water lysimeter": "red",
+        "Precip": "green"
+    }
+
+    # Plot candidate end-members grouped by type for clean legend mapping
+    for em_type, color in type_colors.items():
+        type_subset = subset_explore[subset_explore["Type"] == em_type]
+        if not type_subset.empty:
+            ax.scatter(
+                type_subset["PC1"], type_subset["PC2"],
+                marker='o', s=130, c=color, edgecolors='black', zorder=5,
+                label=em_type
+            )
+
+    # Annotate each candidate point with its Sample ID for identification
+    for _, row in subset_explore.iterrows():
+        # Match point label text color to its category color for readability
+        txt_color = type_colors.get(row["Type"], "black")
+        if txt_color == "yellow":  # Ensure high contrast for yellow text
+            txt_color = "goldenrod"
+            
+        ax.annotate(
+            row["Sample ID"],
+            (row["PC1"], row["PC2"]),
+            xytext=(6, 6), textcoords='offset points',
+            fontsize=11, fontweight='bold', color=txt_color,
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="grey", alpha=0.8)
+        )
+
+    # Variance explained labels
+    pc1_var = pca.explained_variance_ratio_[0] * 100
+    pc2_var = pca.explained_variance_ratio_[1] * 100
+    ax.set_xlabel(f"PC1 ({pc1_var:.1f}%)")
+    ax.set_ylabel(f"PC2 ({pc2_var:.1f}%)")
+    ax.set_title(title)
+
+    ax.legend(bbox_to_anchor=(1.02, 1.02), loc="upper left")
+    plt.tight_layout()
+    plt.show()
+
+    return subset_explore, pca, scaler
