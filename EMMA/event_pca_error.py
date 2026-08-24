@@ -183,11 +183,13 @@ def plot_event_pca_with_avgEM(
     filename = f"{site}_{save_event_name}.jpg"
     output_path = os.path.join("/home/millieginty/OneDrive/git-repos/LCBP-interannual-EMMAs/Output/PCA-Mixing", filename)
 
+    ax.legend(bbox_to_anchor=(1.02, 1.02), loc="upper left")
+    plt.tight_layout()
+
     fig.savefig(output_path, dpi=300)
     print(f"Saved plot to output dir")
     
-    ax.legend(bbox_to_anchor=(1.02, 1.02), loc="upper left")
-    plt.tight_layout()
+
     plt.show()
 
 def calculate_pc_uncertainty(
