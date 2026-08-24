@@ -159,40 +159,24 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     """
     Perform PCA-based EMMA for a storm event using grouped end-member types.
     Groups multiple Sample IDs by 'Type' and uses their mean tracer values.
-    
-    Parameters:
-        data (DataFrame): Full dataframe with streamwater and endmember data
-        site (str): Site name ("Wade" or "Hungerford")
-        start_date (str): Event start date (e.g., '2023-04-01')
-        end_date (str): Event end date (e.g., '2023-04-04')
-        endmember_ids (list of str): List of sample IDs to use as endmembers
-        n_components (int): Number of principal components (default = 2)
-
-    Returns:
-        fractions_df (DataFrame): Streamwater samples with source fractions
+    Includes negative fraction reprojection (Dwivedi et al., 2018 logic).
     """
-    
     # Site-specific tracers
     if site == "Wade":
-        #tracers = ['Ca_mg_L', 'Si_mg_L', 'Mg_mg_L', 'dD', 'd18O', 'Na_mg_L'] # Original Jan '26 WRR submission tracer selection
-        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']                           # Aug '26 WRR resubmission traacer selection after more thourough vetting
+        tracers = ['Ca_mg_L', 'Na_mg_L', 'Mg_mg_L']
     elif site == "Hungerford":
-        #tracers = ['Ca_mg_L', 'Cl_mg_L', 'Si_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O'] # Original Jan '26 WRR submission tracer selection
-        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']  # Aug '26 WRR resubmission traacer selection after more thourough vetting  
+        tracers = ['Ca_mg_L', 'Cl_mg_L', 'Cu_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     elif site == "Potash":
         tracers = ['Ca_mg_L', 'Cl_mg_L', 'K_mg_L', 'Na_mg_L', 'Mg_mg_L', 'dD', 'd18O']
     else:
         raise ValueError("Site not recognized. Use 'Wade', 'Potash', or 'Hungerford'.")
 
-# 2. Ensure datetime format
-    #data["Date"] = pd.to_datetime(data["Date"], format="%m/%d/%Y", errors="coerce") #OLD
-
     # Ensure datetime column is datetime type
-    data['Datetime'] = (data['Date'] + ' ' + data['Time']) # Combine the strings of original inventory Date and Time cols
+    data['Datetime'] = (data['Date'] + ' ' + data['Time'])
     data['Datetime'] = pd.to_datetime(data['Datetime'], format="%m/%d/%Y %H:%M", errors="coerce") 
-    data = data[data['Datetime'].notna()] # NA dates (we have a couple in the RI23 dataset) not useful - prune 
+    data = data[data['Datetime'].notna()] 
 
-# 3. Subset streamwater and endmembers
+    # Subset streamwater and endmembers
     stream = data[
         (data["Site"] == site) &
         (data["Type"].isin(["Grab", "Grab/Isco", "Baseflow", "Isco"])) &
@@ -200,27 +184,23 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
         (data["Datetime"] <= pd.to_datetime(end_date))
     ].copy()
 
-    # Identify endmembers by the provided list of IDs
     em_raw = data[
         (data["Site"] == site) &
         (data["Sample ID"].isin(endmember_ids))
     ].copy()
 
-    # --- THE GROUPING LOGIC ---
-    # Instead of treating each ID as a source, group by 'Type'
-    # E.g., this creates a single "Groundwater" source from multiple IDs
+    # Group by 'Type' and use mean tracer values
     em_grouped = em_raw.groupby('Type')[tracers].mean().reset_index()
     em_grouped["Group"] = "Endmember"
     
-    # 4. Clean + prepare for PCA
+    # Clean + prepare for PCA
     stream_clean = stream[tracers].dropna().copy()
     stream_clean["Group"] = "Streamwater"
     stream_clean["Datetime"] = stream["Datetime"]
 
-    # Combine stream and the grouped endmembers
     combined = pd.concat([stream_clean, em_grouped], ignore_index=True)
 
-    # 5. PCA logic
+    # PCA logic
     scaler = StandardScaler()
     scaled = scaler.fit_transform(combined[tracers])
 
@@ -230,13 +210,13 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     combined["PC1"] = pca_result[:, 0]
     combined["PC2"] = pca_result[:, 1]
 
-    # 6. Separate in PC space
+    # Separate in PC space
     pc_cols = [f"PC{i+1}" for i in range(n_components)]
     stream_pcs = combined[combined["Group"] == "Streamwater"][pc_cols].values
     endmember_pcs = combined[combined["Group"] == "Endmember"][pc_cols].values
     endmember_labels = combined[combined["Group"] == "Endmember"]["Type"].values
 
-    # 7. EMMA optimization 
+    # EMMA optimization 
     def objective(Ii, xi, B):
         xi_pred = np.dot(Ii, B)
         return np.linalg.norm(xi - xi_pred)
@@ -251,11 +231,23 @@ def run_emma_event(data, site, start_date, end_date, endmember_ids, n_components
     for xi in stream_pcs:
         init_guess = np.ones(endmember_pcs.shape[0]) / endmember_pcs.shape[0]
         result = minimize(objective, init_guess, args=(xi, endmember_pcs), constraints=constraints, method='SLSQP')
-        fractions.append(result.x if result.success else np.nan)
+        
+        if result.success:
+            fracs = result.x
+            # --- OUTLIER REPROJECTION (Dwivedi et al., 2018 logic) ---
+            if np.any(fracs < 0):
+                # Set negative fractions to zero
+                fracs = np.clip(fracs, 0, None)
+                # Redistribute to remaining positive fractions so sum = 1
+                if np.sum(fracs) > 0:
+                    fracs = fracs / np.sum(fracs)
+            fractions.append(fracs)
+        else:
+            fractions.append(np.array([np.nan] * endmember_pcs.shape[0]))
 
     fractions = np.vstack(fractions)
 
-    # 8. Assemble output
+    # Assemble output
     stream_info = stream.reset_index(drop=True)[['Sample ID', 'Datetime', 'Site']]
     fractions_df = pd.concat([stream_info, pd.DataFrame(fractions, columns=endmember_labels)], axis=1)
     fractions_df["Sum_Fractions"] = fractions_df[list(endmember_labels)].sum(axis=1)
