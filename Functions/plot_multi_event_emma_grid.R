@@ -190,7 +190,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     geom_line(data = dat_snow, aes(x = datetime, y = snow_cm, color = "Snow Depth", linetype = "Snow Depth"), linewidth = 1.5) +
     geom_line(data = met_daily, aes(x = datetime, y = (Air_Temp_daily - temp_min) * snow_scale + snow_lim[1], color = "Air Temp", linetype = "Air Temp"), linewidth = 1.5) +
     scale_y_continuous(
-      name = "Snow (cm)", limits = snow_lim, expand = c(0, 0),
+      name = "Snow depth (cm)", limits = snow_lim, expand = c(0, 0),
       sec.axis = sec_axis(~ (. - snow_lim[1]) / snow_scale + temp_min, name = "Air Temp (°C)")
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
@@ -211,7 +211,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
   p_emma <- ggplot() +
     geom_area(data = emma_long, aes(x = timestamp, y = q_component, fill = Component), position = "stack", alpha = 0.85) +
     geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "black", linewidth = 1.1) +
-    scale_y_continuous(name = "Q (cms)", limits = q_lim, expand = c(0, 0)) +
+    scale_y_continuous(name = "Stream q (cms) & EMMA", limits = q_lim, expand = c(0, 0)) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
     scale_fill_manual(values = c("Groundwater" = "deepskyblue3", "Meltwater" = "gold3", "Soil water" = "firebrick")) +
     scale_linetype_manual(values = c("Total Q" = "solid")) +
@@ -226,8 +226,8 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     { if (!is.null(dat_no3) && nrow(dat_no3) > 0) geom_line(data = dat_no3, aes(x = timestamp, y = value, color = "NO3"), linewidth = 1.5) } +
     { if (!is.null(dat_doc) && nrow(dat_doc) > 0) geom_line(data = dat_doc, aes(x = timestamp, y = value / doc_scale, color = "DOC"), linewidth = 1.5) } +
     scale_y_continuous(
-      name = "NO3 (mg/L)", limits = no3_lim, expand = c(0, 0),
-      sec.axis = sec_axis(~ . * doc_scale, name = "DOC (mg/L)")
+      name = "Stream nitrate (mg/L)", limits = no3_lim, expand = c(0, 0),
+      sec.axis = sec_axis(~ . * doc_scale, name = "Stream DOC (mg/L)")
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
     scale_color_manual(values = c("NO3" = "darkgreen", "DOC" = "saddlebrown")) +
@@ -249,8 +249,8 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     geom_smooth(data = dat_soil_6cm, aes(x = datetime, y = (.data[[s_temp_col6]] - soil_temp_lim[1]) / soil_scale + soil_vwc_lim[1]), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1.4, method = "loess", span = 0.15) +
     { if (!is.null(dat_soil_15cm)) geom_smooth(data = dat_soil_15cm, aes(x = datetime, y = (Soil_Temp - soil_temp_lim[1]) / soil_scale + soil_vwc_lim[1]), color = "chocolate4", linetype = "dotted", se = FALSE, linewidth = 2, method = "loess", span = 0.15) } +
     scale_y_continuous(
-      name = "VWC", limits = soil_vwc_lim,
-      sec.axis = sec_axis(~ (. - soil_vwc_lim[1]) * soil_scale + soil_temp_lim[1], name = "Temp (°C)")
+      name = "Soil VWC", limits = soil_vwc_lim,
+      sec.axis = sec_axis(~ (. - soil_vwc_lim[1]) * soil_scale + soil_temp_lim[1], name = "Soil temp (°C)")
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "%b %d") +
     theme_bw(base_size = base_font_size) +
