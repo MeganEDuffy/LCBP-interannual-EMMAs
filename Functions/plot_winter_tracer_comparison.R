@@ -95,7 +95,7 @@ build_site_stack <- function(site_name, water_year, event_bounds, q_file, chem_d
     )
 
   source_colors <- c(
-    "Streamwater"              = "black",
+    "Streamwater"              = "blue",
     "Baseflow"                 = "skyblue3",
     "Groundwater"              = "darkblue",
     "Soil water lysimeter"     = "firebrick",
@@ -146,7 +146,7 @@ build_site_stack <- function(site_name, water_year, event_bounds, q_file, chem_d
         p <- ggplot() +
           geom_rect(data = winter_shade, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax), fill = "aliceblue", alpha = 0.8, inherit.aes = FALSE) +
           { if (!is.null(event_shades)) geom_rect(data = event_shades, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax), fill = "yellow", alpha = 0.35, inherit.aes = FALSE) } +
-          geom_line(data = dat_q_scaled, aes(x = timestamp, y = q_scaled), color = "grey80", alpha = 0.85, linewidth = 0.9) +
+          geom_line(data = dat_q_scaled, aes(x = timestamp, y = q_scaled), color = "grey80", alpha = 1, linewidth = 0.9) +
           geom_point(data = chem_clean, aes(x = timestamp, y = .data[[tracer]], color = Type, shape = Type), size = 4, alpha = 0.85) +
           scale_color_manual(values = source_colors, drop = FALSE) +
           scale_shape_manual(values = source_shapes, drop = FALSE) +
@@ -195,7 +195,7 @@ plot_winter_tracer_comparison <- function(site1_name, site2_name,
     plot_layout(guides = "collect") +
     plot_annotation(
       tag_levels = list(c("", "")),
-      title = paste0("         a)"   , site1_name, " Brook                                     b)"   , site2_name, " Brook"),
+      title = paste0("         a)"        , "  ", site1_name, " Brook                           b)"       , "  ", site2_name, " Brook"),
       theme = theme(
         plot.title = element_text(size = base_font_size + 4, face = "bold", hjust = 0),
         plot.tag = element_text(size = base_font_size + 4, face = "bold"),
