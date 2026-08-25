@@ -2,12 +2,6 @@
 # LOAD PACKAGES #
 #################
 
-library(tidyverse)
-library(lubridate)
-library(data.table)
-library(ggplot2)
-library(patchwork)
-
 plot_event_emma_with_soils_and_chem <- function(site_name, 
                                                 plot_range, 
                                                 q_file, 
@@ -130,16 +124,35 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
   
   emma_dt <- as.data.table(dat_q)[as.data.table(emma_raw), roll = "nearest", on = .(timestamp)]
   
-  gw_col   <- names(emma_dt)[grep("Groundwater", names(emma_dt), ignore.case = TRUE)][1]
-  melt_col <- names(emma_dt)[grep("Snowmelt", names(emma_dt), ignore.case = TRUE)][1]
-  soil_col <- names(emma_dt)[grep("Soil", names(emma_dt), ignore.case = TRUE)][1]
+  find_col <- function(df, patterns) {
+    col_names <- names(df)
+    for (pat in patterns) {
+      match_idx <- grep(pat, col_names, ignore.case = TRUE)
+      if (length(match_idx) > 0) return(col_names[match_idx[1]])
+    }
+    return(NULL)
+  }
+  
+  gw_col   <- find_col(emma_dt, c("Groundwater", "Baseflow"))
+  melt_col <- find_col(emma_dt, c("Snowmelt", "Meltwater", "Snow"))
+  soil_col <- find_col(emma_dt, c("Soil water lysimeter", "Soil", "Soil water"))
+  
+  if (is.null(gw_col) || is.null(melt_col) || is.null(soil_col)) {
+    stop("Could not automatically match EMMA fraction columns. Check column names in: ", emma_frac_file)
+  }
   
   emma_data <- emma_dt %>%
     mutate(
-      q_gw   = q_cms * .data[[gw_col]],
-      q_melt = q_cms * .data[[melt_col]],
-      q_soil = q_cms * .data[[soil_col]]
+      Groundwater   = q_cms * .data[[gw_col]],
+      Meltwater = q_cms * .data[[melt_col]],
+      `Soil water`  = q_cms * .data[[soil_col]]
     )
+
+  # Reshape wide to long for stacked area plotting
+  emma_long <- emma_data %>%
+    select(timestamp, Groundwater, Meltwater, `Soil water`) %>%
+    pivot_longer(cols = c(Groundwater, Meltwater, `Soil water`), names_to = "Component", values_to = "q_component") %>%
+    mutate(Component = factor(Component, levels = c("Soil water", "Meltwater", "Groundwater")))
 
   # -------------------------------------------------------------------
   # 5. LOAD SENSOR HELPER FOR CHEM (DOC & NO3)
@@ -172,7 +185,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
   # 6. BUILD PANELS
   # -------------------------------------------------------------------
   
-  # Panel 1: Met and snowpack (Air Temp mapped with linetype)
+  # Panel 1: Met and snowpack
   p_snow <- ggplot() +
     geom_line(data = dat_snow, aes(x = datetime, y = snow_cm, color = "Snow Depth", linetype = "Snow Depth"), linewidth = 1.5) +
     geom_line(data = met_daily, aes(x = datetime, y = (Air_Temp_daily - temp_min) * snow_scale + snow_lim[1], color = "Air Temp", linetype = "Air Temp"), linewidth = 1.5) +
@@ -182,7 +195,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
     scale_color_manual(values = c("Snow Depth" = "blue4", "Air Temp" = "firebrick")) +
-    scale_linetype_manual(values = c("Snow Depth" = "solid", "Air Temp" = "dashed")) +
+    scale_linetype_manual(values = c("Snow Depth" = "solid", "Air Temp" = "dotted")) +
     theme_bw(base_size = base_font_size) +
     labs(title = event_title, color = NULL, linetype = NULL) +
     theme(
@@ -194,25 +207,20 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
       legend.position = "none"
     )
 
-  # Panel 2: EMMA Volumetric Hydrograph (Forced 2 columns)
+  # Panel 2: Stacked Volumetric Hydrograph (Proportional area under total Q curve)
   p_emma <- ggplot() +
-    geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "grey50", linewidth = 1) +
-    geom_point(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), shape = 17, size = 4) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_gw, color = "Groundwater"), alpha = 0.4, linewidth = 1) +
-    geom_point(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), shape = 16, size = 4) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_melt, color = "Meltwater"), alpha = 0.4, linewidth = 1) +
-    geom_point(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), shape = 15, size = 4) +
-    geom_line(data = emma_data, aes(x = timestamp, y = q_soil, color = "Soil water"), alpha = 0.4, linewidth = 1) +
+    geom_area(data = emma_long, aes(x = timestamp, y = q_component, fill = Component), position = "stack", alpha = 0.85) +
+    geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "black", linewidth = 1.1) +
     scale_y_continuous(name = "Q (cms)", limits = q_lim, expand = c(0, 0)) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
-    scale_color_manual(values = c("Groundwater" = "blue", "Meltwater" = "gold3", "Soil water" = "firebrick")) +
-    scale_linetype_manual(values = c("Total Q" = "dashed")) +
-    guides(color = guide_legend(ncol = 2), linetype = guide_legend(ncol = 2)) +
+    scale_fill_manual(values = c("Groundwater" = "deepskyblue3", "Meltwater" = "gold3", "Soil water" = "firebrick")) +
+    scale_linetype_manual(values = c("Total Q" = "solid")) +
+    guides(fill = guide_legend(ncol = 3), linetype = guide_legend(ncol = 1)) +
     theme_bw(base_size = base_font_size) + 
-    labs(x = "", color = "Components", linetype = "") +
+    labs(x = "", fill = "Components", linetype = "") +
     theme(axis.title.x = element_blank(), axis.text.x = element_blank(), legend.position = "bottom")
 
-  # Panel 3: Stream Chemistry (Forced 2 columns)
+  # Panel 3: Stream Chemistry
   p_chem <- ggplot() +
     geom_line(data = dat_q_chem_scaled, aes(x = timestamp, y = q_scaled), color = "grey80", alpha = 0.85, linewidth = 1.5) +
     { if (!is.null(dat_no3) && nrow(dat_no3) > 0) geom_line(data = dat_no3, aes(x = timestamp, y = value, color = "NO3"), linewidth = 1.5) } +
@@ -259,76 +267,4 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     theme(legend.position = leg_pos)
 
   return(stacked_column)
-}
-
-plot_multi_event_grid <- function(site_name, 
-                                  q_file, 
-                                  snow_file,
-                                  soil_file_6cm,
-                                  soil_file_15cm,
-                                  met_file,
-                                  no3_file,
-                                  doc_file,
-                                  event_windows_df,
-                                  emma_files,
-                                  event_titles,
-                                  q_lim = c(0, 3.5),
-                                  no3_lim = c(0, 2),
-                                  doc_lim = c(0, 20),
-                                  snow_lim = c(0, 60),      
-                                  air_temp_lim = c(-20, 20),
-                                  soil_vwc_lim = c(0, 0.5),   
-                                  soil_temp_lim = c(-5, 20),  
-                                  base_font_size = 11) {
-  
-  cols <- list()
-  
-  for (i in seq_len(nrow(event_windows_df))) {
-    r_start <- event_windows_df$start[i]
-    r_end   <- event_windows_df$end[i]
-    e_file  <- emma_files[i]
-    e_title <- event_titles[i]
-    
-    is_first <- (i == 1)
-    
-    col_plot <- plot_event_emma_with_soils_and_chem(
-      site_name      = site_name,
-      plot_range     = c(r_start, r_end),
-      q_file         = q_file,
-      snow_file      = snow_file,
-      soil_file_6cm  = soil_file_6cm,
-      soil_file_15cm = soil_file_15cm,
-      met_file       = met_file,
-      emma_frac_file = e_file,
-      no3_file       = no3_file,
-      doc_file       = doc_file,
-      q_lim          = q_lim,
-      no3_lim        = no3_lim,
-      doc_lim        = doc_lim,
-      snow_lim       = snow_lim,       
-      air_temp_lim   = air_temp_lim,   
-      soil_vwc_lim   = soil_vwc_lim,   
-      soil_temp_lim  = soil_temp_lim,  
-      base_font_size = base_font_size,
-      event_title    = e_title,
-      show_legend    = is_first 
-    )
-    
-    cols[[i]] <- col_plot
-  }
-  
-# Stitch columns together and collect guides to the right
-  grid_plot <- (cols[[1]] | cols[[2]] | cols[[3]]) +
-    plot_layout(guides = "collect") +
-    plot_annotation(
-      tag_levels = 'a',
-      theme = theme(
-        legend.position = "right",
-        legend.box = "vertical",
-        plot.tag = element_text(size = base_font_size + 2, face = "bold")
-      )
-    ) &
-    theme(legend.position = "right")
-  
-  return(grid_plot)
 }
