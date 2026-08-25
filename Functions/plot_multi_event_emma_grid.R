@@ -2,6 +2,15 @@
 # LOAD PACKAGES #
 #################
 
+#################
+# LOAD PACKAGES #
+#################
+library(tidyverse)
+library(lubridate)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+
 plot_event_emma_with_soils_and_chem <- function(site_name, 
                                                 plot_range, 
                                                 q_file, 
@@ -15,41 +24,54 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
                                                 q_lim = c(0, 4),
                                                 no3_lim = c(0, 2),
                                                 doc_lim = c(0, 20),
-                                                snow_lim = c(0, 60),      # Shared Snow limit toggle
-                                                air_temp_lim = c(-20, 20),# Shared Air Temp limit toggle
+                                                snow_lim = c(0, 60),      
+                                                air_temp_lim = c(-20, 20),
+                                                precip_lim = c(0, 50),     # Max limit for precipitation scale mapping
                                                 soil_vwc_lim = c(0, 0.5), 
                                                 soil_temp_lim = c(-5, 20), 
                                                 base_font_size = 14,
                                                 event_title = NULL,
-                                                show_legend = TRUE) {
+                                                show_legend = TRUE,
+                                                shading_df = NULL) {
   
   start_date <- as.POSIXct(plot_range[1], tz = "UTC")
   end_date   <- as.POSIXct(plot_range[2], tz = "UTC")
   
   # -------------------------------------------------------------------
-  # 1. LOAD & PREP MET DATA (Air Temp using shared limits)
+  # 1. LOAD & PREP MET DATA (Air Temp & Precip)
   # -------------------------------------------------------------------
   dat_met <- read.csv(met_file, comment.char = "#") %>%
     rename_with(~ "Timestamp", matches("Timestamp|datetime|Date", ignore.case = TRUE)) %>%
     rename_with(~ "Air_Temp", matches("Air_Temp|AirTemp", ignore.case = TRUE)) %>%
-    mutate(datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS"), tz = "UTC")) %>%
+    rename_with(~ "Precip_Increm", matches("Precip_Increm|Precipitation|Precip", ignore.case = TRUE)) %>%
+    mutate(
+      datetime = parse_date_time(Timestamp, orders = c("ymd HMS", "ymd HM", "mdy HM", "mdy HMS", "ymd"), tz = "UTC"),
+      Precip_Increm = as.numeric(Precip_Increm)
+    ) %>%
     filter(!is.na(datetime), datetime >= start_date & datetime <= end_date)
   
   met_daily <- dat_met %>%
     mutate(date = as.Date(datetime, tz = "UTC")) %>%
     group_by(date) %>%
-    summarise(Air_Temp_daily = mean(Air_Temp, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      Air_Temp_daily = mean(Air_Temp, na.rm = TRUE),
+      Precip_daily = sum(Precip_Increm, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
     mutate(datetime = as.POSIXct(paste(date, "12:00:00"), tz = "UTC"))
 
   temp_min <- air_temp_lim[1]
   temp_max <- air_temp_lim[2]
   temp_range <- temp_max - temp_min
   snow_max <- snow_lim[2]
-  
   snow_scale <- snow_max / temp_range
 
+  # Scaling factor to map precipitation onto the snow/temp primary axis range (reversed from snow_max down to 0)
+  precip_max <- precip_lim[2]
+  precip_scale <- snow_max / precip_max
+
   # -------------------------------------------------------------------
-  # 2. LOAD & PREP SNOW DATA (Using shared limits)
+  # 2. LOAD & PREP SNOW DATA
   # -------------------------------------------------------------------
   dat_snow <- read.csv(snow_file, comment.char = "#") %>%
     rename_with(~ "snow_cm", matches("modeled_snow_depth_cm|snowpack_cm|Snowpack Depth cm", ignore.case = TRUE)) %>%
@@ -148,7 +170,6 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
       `Soil water`  = q_cms * .data[[soil_col]]
     )
 
-  # Reshape wide to long for stacked area plotting
   emma_long <- emma_data %>%
     select(timestamp, Groundwater, Meltwater, `Soil water`) %>%
     pivot_longer(cols = c(Groundwater, Meltwater, `Soil water`), names_to = "Component", values_to = "q_component") %>%
@@ -162,7 +183,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     df <- read.csv(file_path, comment.char = "#", stringsAsFactors = FALSE)
     t_col <- names(df)[grep("ISO\\.8601\\.UTC|datetime|timestamp|Date", names(df), ignore.case = TRUE)][1]
     v_col <- names(df)[grep(val_pattern, names(df), ignore.case = TRUE)][1]
-    if (is.na(t_col) || is.na(v_col)) return(NULL)
+    if (is.na(t_col) || !is.null(v_col) && is.na(v_col)) return(NULL)
     df %>%
       mutate(
         timestamp = ymd_hms(.data[[t_col]], tz = "UTC"),
@@ -176,7 +197,6 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
   dat_doc <- load_sensor(doc_file, "doc|Value")
 
   doc_scale <- doc_lim[2] / no3_lim[2]
-
   no3_span <- no3_lim[2] - no3_lim[1]
   dat_q_chem_scaled <- dat_q %>%
     mutate(q_scaled = no3_lim[1] + (q_cms / q_lim[2]) * (no3_span * 0.55))
@@ -185,8 +205,12 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
   # 6. BUILD PANELS
   # -------------------------------------------------------------------
   
-  # Panel 1: Met and snowpack
+  # Panel 1: Met, Snowpack, and Reversed Precipitation
   p_snow <- ggplot() +
+    { if (!is.null(shading_df)) geom_rect(data = shading_df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), fill = "yellow", alpha = 0.2, inherit.aes = FALSE) } +
+    # Reversed Precipitation bars (hanging from the top: snow_max down to snow_max - value * precip_scale)
+    { if ("Precip_Increm" %in% names(dat_met) && nrow(dat_met) > 0) 
+        geom_col(data = dat_met, aes(x = datetime, y = snow_max - Precip_Increm * precip_scale, fill = "Precipitation"), width = 3600, alpha = 0.6) } +
     geom_line(data = dat_snow, aes(x = datetime, y = snow_cm, color = "Snow Depth", linetype = "Snow Depth"), linewidth = 1.5) +
     geom_line(data = met_daily, aes(x = datetime, y = (Air_Temp_daily - temp_min) * snow_scale + snow_lim[1], color = "Air Temp", linetype = "Air Temp"), linewidth = 1.5) +
     scale_y_continuous(
@@ -195,9 +219,10 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     ) +
     scale_x_datetime(limits = c(start_date, end_date), date_labels = "") +
     scale_color_manual(values = c("Snow Depth" = "blue4", "Air Temp" = "firebrick")) +
+    scale_fill_manual(values = c("Precipitation" = "dodgerblue")) +
     scale_linetype_manual(values = c("Snow Depth" = "solid", "Air Temp" = "dotted")) +
     theme_bw(base_size = base_font_size) +
-    labs(title = event_title, color = NULL, linetype = NULL) +
+    labs(title = event_title, color = NULL, fill = NULL, linetype = NULL) +
     theme(
       axis.title.x = element_blank(), 
       axis.text.x = element_blank(), 
@@ -207,8 +232,9 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
       legend.position = "none"
     )
 
-  # Panel 2: Stacked Volumetric Hydrograph (Proportional area under total Q curve)
+  # Panel 2: Stacked Volumetric Hydrograph
   p_emma <- ggplot() +
+    { if (!is.null(shading_df)) geom_rect(data = shading_df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), fill = "yellow", alpha = 0.2, inherit.aes = FALSE) } +
     geom_area(data = emma_long, aes(x = timestamp, y = q_component, fill = Component), position = "stack", alpha = 0.85) +
     geom_line(data = dat_q, aes(x = timestamp, y = q_cms, linetype = "Total Q"), color = "black", linewidth = 1.1) +
     scale_y_continuous(name = "Stream q (cms) & EMMA", limits = q_lim, expand = c(0, 0)) +
@@ -222,6 +248,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
 
   # Panel 3: Stream Chemistry
   p_chem <- ggplot() +
+    { if (!is.null(shading_df)) geom_rect(data = shading_df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), fill = "yellow", alpha = 0.2, inherit.aes = FALSE) } +
     geom_line(data = dat_q_chem_scaled, aes(x = timestamp, y = q_scaled), color = "grey80", alpha = 0.85, linewidth = 1.5) +
     { if (!is.null(dat_no3) && nrow(dat_no3) > 0) geom_line(data = dat_no3, aes(x = timestamp, y = value, color = "NO3"), linewidth = 1.5) } +
     { if (!is.null(dat_doc) && nrow(dat_doc) > 0) geom_line(data = dat_doc, aes(x = timestamp, y = value / doc_scale, color = "DOC"), linewidth = 1.5) } +
@@ -244,6 +271,7 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
 
   # Panel 4: Consolidated Soil Temperature and Moisture
   p_soil <- ggplot() +
+    { if (!is.null(shading_df)) geom_rect(data = shading_df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), fill = "yellow", alpha = 0.2, inherit.aes = FALSE) } +
     geom_smooth(data = dat_soil_6cm, aes(x = datetime, y = .data[[s_vwc_col6]]), color = "dodgerblue3", se = FALSE, linewidth = 1.4, method = "loess", span = 0.15) +
     { if (!is.null(dat_soil_15cm)) geom_smooth(data = dat_soil_15cm, aes(x = datetime, y = VWC), color = "dodgerblue4", se = FALSE, linewidth = 2, method = "loess", span = 0.15) } +
     geom_smooth(data = dat_soil_6cm, aes(x = datetime, y = (.data[[s_temp_col6]] - soil_temp_lim[1]) / soil_scale + soil_vwc_lim[1]), color = "darkorange3", linetype = "dotted", se = FALSE, linewidth = 1.4, method = "loess", span = 0.15) +
@@ -267,4 +295,79 @@ plot_event_emma_with_soils_and_chem <- function(site_name,
     theme(legend.position = leg_pos)
 
   return(stacked_column)
+}
+
+plot_multi_event_grid <- function(site_name, 
+                                q_file, 
+                                snow_file,
+                                soil_file_6cm,
+                                soil_file_15cm,
+                                met_file,
+                                no3_file,
+                                doc_file,
+                                event_windows_df,
+                                emma_files,
+                                event_titles,
+                                q_lim = c(0, 3.5),
+                                no3_lim = c(0, 2),
+                                doc_lim = c(0, 20),
+                                snow_lim = c(0, 60),      
+                                air_temp_lim = c(-20, 20),
+                                precip_lim = c(0, 50),
+                                soil_vwc_lim = c(0, 0.5),    
+                                soil_temp_lim = c(-5, 20),  
+                                base_font_size = 11,
+                                shading_df = NULL) {
+  
+  cols <- list()
+  
+  for (i in seq_len(nrow(event_windows_df))) {
+    r_start <- event_windows_df$start[i]
+    r_end   <- event_windows_df$end[i]
+    e_file  <- emma_files[i]
+    e_title <- event_titles[i]
+    
+    is_first <- (i == 1)
+    
+    col_plot <- plot_event_emma_with_soils_and_chem(
+      site_name      = site_name,
+      plot_range     = c(r_start, r_end),
+      q_file         = q_file,
+      snow_file      = snow_file,
+      soil_file_6cm  = soil_file_6cm,
+      soil_file_15cm = soil_file_15cm,
+      met_file       = met_file,
+      emma_frac_file = e_file,
+      no3_file       = no3_file,
+      doc_file       = doc_file,
+      q_lim          = q_lim,
+      no3_lim        = no3_lim,
+      doc_lim        = doc_lim,
+      snow_lim       = snow_lim,        
+      air_temp_lim   = air_temp_lim,    
+      precip_lim     = precip_lim,
+      soil_vwc_lim   = soil_vwc_lim,    
+      soil_temp_lim  = soil_temp_lim,  
+      base_font_size = base_font_size,
+      event_title    = e_title,
+      show_legend    = is_first,
+      shading_df     = shading_df
+    )
+    
+    cols[[i]] <- col_plot
+  }
+  
+  grid_plot <- (cols[[1]] | cols[[2]] | cols[[3]]) +
+    plot_layout(guides = "collect") +
+    plot_annotation(
+      tag_levels = 'a',
+      theme = theme(
+        legend.position = "right",
+        legend.box = "vertical",
+        plot.tag = element_text(size = base_font_size + 2, face = "bold")
+      )
+    ) &
+    theme(legend.position = "right")
+  
+  return(grid_plot)
 }
