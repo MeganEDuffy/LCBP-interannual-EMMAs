@@ -115,7 +115,8 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   # -------------------------------------------------------------------
   # 5. BUILD INDIVIDUAL PANELS
   # -------------------------------------------------------------------
-  no3_label <- bquote(NO[3]^{"-"}~"(mg/L)")
+  #no3_label <- bquote(NO[3]^{"-"}~"(mg/L)") 
+  no3_label <- expression(~ NO[3]*"-N (mg/L)")
   
   # Site 1 Panels
   p_q1    <- build_panel(s1_q, "Q (m³/s)", q_lim, "blue", site1_samp_dates, title = paste(site1_name, "Brook"))
@@ -135,10 +136,10 @@ plot_compare_stream_sensors <- function(site1_name, s1_q_file, s1_no3_file, s1_d
   # 6. STITCH WITH COWPLOT
   # -------------------------------------------------------------------
   left_col <- plot_grid(p_q1, p_no31, p_doc1, p_tp1, p_turb1, ncol = 1, align = "v", 
-                        labels = c("a)", "b)", "c)", "d)", "e)"), label_x = -0.02, label_size = 30)
+                        labels = c("a)", "b)", "c)", "d)", "e)"), label_x = -0.07, label_size = 30)
   
   right_col <- plot_grid(p_q2, p_no32, p_doc2, p_tp2, p_turb2, ncol = 1, align = "v", 
-                         labels = c("f)", "g)", "h)", "i)", "j)"), label_x = -0.02, label_size = 30)
+                         labels = c("f)", "g)", "h)", "i)", "j)"), label_x = -0.1, label_size = 30)
   
   final_composite <- plot_grid(left_col, right_col, ncol = 2)
   

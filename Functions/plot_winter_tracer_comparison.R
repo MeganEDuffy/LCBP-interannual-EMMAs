@@ -101,7 +101,7 @@ build_site_stack <- function(site_name, water_year, event_bounds, q_file, chem_d
     "Soil water lysimeter"     = "firebrick",
     "Soil water lysimeter dry" = "firebrick",
     "Soil water lysimeter wet" = "firebrick",
-    "Meltwater"                = "orange",
+    "Meltwater"                = "darkorange4",
     "Precip"                   = "purple",
     "Snow"                     = "purple"
   )
@@ -136,7 +136,7 @@ build_site_stack <- function(site_name, water_year, event_bounds, q_file, chem_d
           if (is.na(val_range) || val_range == 0) val_range <- 1
           
           dat_q_scaled <- dat_q %>%
-            mutate(q_scaled = val_min + (q_cms / q_lim[2]) * (val_range * 0.55))
+            mutate(q_scaled = val_min + (q_cms / q_lim[2]) * (val_range * 0.98))
         } else {
           dat_q_scaled <- dat_q %>% mutate(q_scaled = NA)
         }
