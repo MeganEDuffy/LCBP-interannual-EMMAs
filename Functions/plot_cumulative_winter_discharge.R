@@ -88,7 +88,7 @@ plot_cumulative_winter_discharge <- function(site_number,
     geom_point(size = 2, alpha = 0.9) + 
     theme_bw() +
     labs(
-      y = "Cum. winter discharge (cms)", 
+      y = "Cum. winter discharge (cubic meters)", 
       x = "Year"
     ) +
     geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) + 
